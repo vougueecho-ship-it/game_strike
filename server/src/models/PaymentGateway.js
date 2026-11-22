@@ -13,6 +13,9 @@ const paymentGatewaySchema = new mongoose.Schema(
     supportsDeposit: { type: Boolean, default: true },
     supportsWithdraw: { type: Boolean, default: true },
     color: { type: String, default: '#2563EB' },
+    qrImageUrl: { type: String, default: '' },
+    directPaymentLink: { type: String, default: '' },
+    instructions: { type: String, default: '' },
     enabled: { type: Boolean, default: true },
     // Pluggable Payment Gateway API Config
     apiConfig: {

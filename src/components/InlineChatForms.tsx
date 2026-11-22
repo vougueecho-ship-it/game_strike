@@ -5,6 +5,7 @@ import {
   ArrowUpCircle,
   CheckCircle2,
   Copy,
+  Download,
   ExternalLink,
   Gamepad2,
   Gift,
@@ -228,10 +229,47 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
                   type="button"
                   className="msg-act-btn"
                   onClick={() => copyField('dep-tag', selectedGateway.handle)}
+                  title="Copy payment tag"
                 >
                   {copiedKey === 'dep-tag' ? <CheckCircle2 size={12} color="#22c55e" /> : <Copy size={12} />}
                 </button>
               </div>
+
+              {/* Direct payment link if available */}
+              {selectedGateway.directPaymentLink && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+                  <a
+                    href={selectedGateway.directPaymentLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: '0.76rem', color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <span>Open Direct Payment Link ↗</span>
+                  </a>
+                </div>
+              )}
+
+              {/* QR Code preview & 1-click Download */}
+              {selectedGateway.qrImageUrl && (
+                <div style={{ marginTop: 8, textAlign: 'center' }}>
+                  <img
+                    src={selectedGateway.qrImageUrl}
+                    alt={`${selectedGateway.name} QR Code`}
+                    style={{ width: 130, height: 130, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 4 }}
+                  />
+                  <div style={{ marginTop: 4 }}>
+                    <a
+                      href={selectedGateway.qrImageUrl}
+                      download={`${selectedGateway.name}-QR.png`}
+                      className="btn-secondary"
+                      style={{ padding: '3px 8px', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}
+                    >
+                      <Download size={11} />
+                      <span>Download QR</span>
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="field-group" style={{ marginBottom: 10 }}>

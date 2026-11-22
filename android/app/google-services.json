@@ -7,12 +7,17 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:893262340852:android:201e3c214047ff9fe8b4a1",
+        "mobilesdk_app_id": "1:893262340852:android:a2c055ed9062439ce8b4a1",
         "android_client_info": {
-          "package_name": "io.gamestrike.app"
+          "package_name": "io.gamestrike.admin"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBbsPAGHrDYMnooJyqAFq_0AtGYoDMX72s"
@@ -20,7 +25,41 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:893262340852:android:201e3c214047ff9fe8b4a1",
+        "android_client_info": {
+          "package_name": "io.gamestrike.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbsPAGHrDYMnooJyqAFq_0AtGYoDMX72s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

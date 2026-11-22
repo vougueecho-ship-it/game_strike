@@ -244,6 +244,10 @@ export async function initDatabase() {
     useMongo = true;
     const safeHost = uri.includes('@') ? uri.split('@')[1].split('/')[0] : uri;
     console.log(`[DB] Connected to MongoDB: ${safeHost}`);
+
+    mongoose.connection.on('error', (err) => {
+      console.warn('[DB Error] MongoDB connection error:', err.message);
+    });
   } catch (err) {
     useMongo = false;
     console.log(

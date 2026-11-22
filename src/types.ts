@@ -61,6 +61,10 @@ export interface PaymentGateway {
   supportsDeposit: boolean;
   supportsWithdraw: boolean;
   color: string;
+  qrImageUrl?: string;
+  directPaymentLink?: string;
+  instructions?: string;
+  enabled?: boolean;
   apiConnected?: boolean;
 }
 

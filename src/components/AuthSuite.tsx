@@ -59,12 +59,17 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
   useEffect(() => {
     apiFetch<{ clientId: string }>('/api/auth/google-client-id')
       .then((res) => {
-        if (res.clientId) {
-          setGoogleClientId(res.clientId);
-          loadGoogleScript(res.clientId);
+        const id = res.clientId || '893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com';
+        if (id) {
+          setGoogleClientId(id);
+          loadGoogleScript(id);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        const fallbackId = '893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com';
+        setGoogleClientId(fallbackId);
+        loadGoogleScript(fallbackId);
+      });
   }, []);
 
   function loadGoogleScript(clientId: string) {
@@ -82,23 +87,33 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
   }
 
   function initializeGoogle(clientId: string) {
-    if (!window.google?.accounts?.id) return;
+    if (!window.google?.accounts?.id) {
+      setTimeout(() => initializeGoogle(clientId), 250);
+      return;
+    }
     window.google.accounts.id.initialize({
       client_id: clientId,
       callback: handleGoogleResponse,
       auto_select: false,
     });
     if (googleBtnRef.current) {
+      googleBtnRef.current.innerHTML = '';
       window.google.accounts.id.renderButton(googleBtnRef.current, {
         type: 'standard',
         theme: 'filled_black',
         size: 'large',
         text: 'continue_with',
         shape: 'pill',
-        width: '100%',
+        width: 320,
       });
     }
   }
+
+  const triggerGooglePrompt = () => {
+    if (window.google?.accounts?.id) {
+      window.google.accounts.id.prompt();
+    }
+  };
 
   async function handleGoogleResponse(response: { credential: string }) {
     setLoading(true);
@@ -493,22 +508,17 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
 
           <div className="auth-divider">or continue with</div>
 
-          {/* Google Sign-In Button (rendered by Google Identity Services SDK) */}
-          {googleClientId && (
-            <div
-              ref={googleBtnRef}
-              style={{ width: '100%', display: 'flex', justifyContent: 'center', marginBottom: 10 }}
-            />
-          )}
-
-          {/* Manual Google-style fallback button (shown when clientId not yet configured) */}
-          {!googleClientId && (
+          {/* Google Sign-In Button Container */}
+          <div
+            ref={googleBtnRef}
+            style={{ width: '100%', minHeight: 44, display: 'flex', justifyContent: 'center', marginBottom: 10 }}
+          >
             <button
               type="button"
               className="btn-secondary"
+              onClick={triggerGooglePrompt}
               style={{
                 width: '100%',
-                marginBottom: 10,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -517,9 +527,8 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
                 borderRadius: 999,
                 fontWeight: 700,
                 fontSize: '0.84rem',
+                cursor: 'pointer',
               }}
-              disabled
-              title="Google OAuth will be enabled after GOOGLE_CLIENT_ID is set in server/.env"
             >
               <svg width="18" height="18" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -527,9 +536,9 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
                 <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.77-4.59l-7.98-6.19A23.998 23.998 0 000 24c0 3.77.9 7.35 2.56 10.52l7.97-5.93z"/>
                 <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.93C6.51 42.62 14.62 48 24 48z"/>
               </svg>
-              <span>Continue with Google (Setup Required)</span>
+              <span>Continue with Google</span>
             </button>
-          )}
+          </div>
 
           <div className="auth-divider">or test immediately</div>
 
