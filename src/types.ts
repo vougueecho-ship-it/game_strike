@@ -5,8 +5,12 @@ export type ThreadId = 'concierge' | 'cashier' | 'accounts';
 export interface PlatformSettings {
   welcomeBonusPercent: number;
   regularBonusPercent: number;
+  referralBonus?: number;
+  freeplayMinWithdraw?: number;
+  freeplayMaxWithdraw?: number;
   withdrawMultiplier: number;
   minWithdrawFallback: number;
+  enforceDeviceLimit?: boolean;
 }
 
 export interface UserProfile {
@@ -16,6 +20,8 @@ export interface UserProfile {
   username: string;
   contact: string;
   role?: 'player' | 'admin';
+  status?: 'active' | 'suspended';
+  isDeviceBlocked?: boolean;
   joinedAt: string;
   tier: 'Starter' | 'VIP Strike';
   completedDepositsCount?: number;
@@ -103,6 +109,12 @@ export interface ChatMessage {
   read?: boolean;
   edited?: boolean;
   deletedForEveryone?: boolean;
+  replyTo?: {
+    id: string;
+    text: string;
+    sender: string;
+  };
+  reactions?: Record<string, string[]>;
   attachmentUrl?: string;
   attachmentName?: string;
   quickReplies?: QuickReply[];

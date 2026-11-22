@@ -63,6 +63,7 @@ interface ChatSuiteProps {
   onSendMessage: (text: string, attachment?: { url: string; name: string }) => void;
   onEditMessage?: (messageId: string, newText: string) => void;
   onDeleteMessage?: (messageId: string) => void;
+  onReactMessage?: (messageId: string, emoji: string) => void;
   onTriggerAction: (action: string, preselectedGame?: string) => void;
   onSubmitDeposit: (data: {
     game: string;
@@ -107,6 +108,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   onSendMessage,
   onEditMessage,
   onDeleteMessage,
+  onReactMessage,
   onTriggerAction,
   onSubmitDeposit,
   onSubmitWithdraw,
@@ -572,6 +574,63 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                           <div className="msg-bubble">{msg.text}</div>
                         </div>
                       )
+                    )}
+
+                    {/* Emoji Reactions Pills & Quick Reaction Trigger (Winning Heaven Style) */}
+                    {!msg.deletedForEveryone && (
+                      <div className="msg-reactions-wrap" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                        {msg.reactions &&
+                          Object.entries(msg.reactions).map(([emoji, voters]) => {
+                            const count = voters.length;
+                            if (count === 0) return null;
+                            const hasMyVote = voters.includes(user.contact.toLowerCase().trim());
+                            return (
+                              <button
+                                key={emoji}
+                                type="button"
+                                className={`msg-reaction-pill ${hasMyVote ? 'active' : ''}`}
+                                onClick={() => onReactMessage?.(msg.id, emoji)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  padding: '2px 6px',
+                                  borderRadius: 12,
+                                  fontSize: '0.72rem',
+                                  border: hasMyVote ? '1px solid #ffd166' : '1px solid var(--border-subtle)',
+                                  background: hasMyVote ? 'rgba(255, 209, 102, 0.15)' : 'var(--bg-surface-soft)',
+                                  color: 'var(--text-primary)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <span>{emoji}</span>
+                                <span className="mono" style={{ fontSize: '0.68rem', fontWeight: 600 }}>{count}</span>
+                              </button>
+                            );
+                          })}
+
+                        {/* Quick emoji popover buttons */}
+                        <div className="msg-quick-emojis" style={{ display: 'inline-flex', gap: 2, opacity: 0.75 }}>
+                          {['👍', '🔥', '⚡', '❤️', '🎉'].map((em) => (
+                            <button
+                              key={em}
+                              type="button"
+                              onClick={() => onReactMessage?.(msg.id, em)}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                padding: '1px 3px',
+                                filter: 'grayscale(30%)',
+                              }}
+                              title={`React with ${em}`}
+                            >
+                              {em}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     {msg.card && (

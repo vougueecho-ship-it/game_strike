@@ -249,6 +249,12 @@ function sanitizeUser(u) {
     username: u.username,
     contact: u.contact,
     role: u.role,
+    status: u.status || 'active',
+    isDeviceBlocked: Boolean(u.isDeviceBlocked),
+    deviceBlockReason: u.deviceBlockReason || '',
+    deviceId: u.deviceId || '',
+    deviceFingerprint: u.deviceFingerprint || '',
+    registrationIp: u.registrationIp || '',
     tier: u.tier,
     completedDepositsCount: Number(u.completedDepositsCount || 0),
     lastDepositAmount: Number(u.lastDepositAmount || 0),
@@ -361,6 +367,10 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await db.findUserById(req.auth.id);
+  if (!user) return res.status(401).json({ error: 'User not found.' });
+  if (user.status === 'suspended' || user.isDeviceBlocked) {
+    return res.status(403).json({ error: 'Your account has been suspended.', suspended: true });
+  }
   const settings = await db.getSettings();
   res.json({ user: sanitizeUser(user), settings });
 });
@@ -371,13 +381,25 @@ app.get('/api/settings', async (_req, res) => {
 
 app.put('/api/admin/settings', requireAdmin, async (req, res) => {
   try {
-    const { welcomeBonusPercent, regularBonusPercent, withdrawMultiplier, minWithdrawFallback } =
-      req.body;
+    const {
+      welcomeBonusPercent,
+      regularBonusPercent,
+      referralBonus,
+      freeplayMinWithdraw,
+      freeplayMaxWithdraw,
+      withdrawMultiplier,
+      minWithdrawFallback,
+      enforceDeviceLimit,
+    } = req.body;
     const saved = await db.updateSettings({
       welcomeBonusPercent: Math.max(0, Number(welcomeBonusPercent ?? 100)),
       regularBonusPercent: Math.max(0, Number(regularBonusPercent ?? 20)),
+      referralBonus: Math.max(0, Number(referralBonus ?? 10)),
+      freeplayMinWithdraw: Math.max(1, Number(freeplayMinWithdraw ?? 30)),
+      freeplayMaxWithdraw: Math.max(1, Number(freeplayMaxWithdraw ?? 100)),
       withdrawMultiplier: Math.max(1, Number(withdrawMultiplier ?? 3)),
       minWithdrawFallback: Math.max(1, Number(minWithdrawFallback ?? 20)),
+      enforceDeviceLimit: enforceDeviceLimit !== undefined ? Boolean(enforceDeviceLimit) : true,
     });
     res.json(saved);
   } catch (err) {
@@ -387,7 +409,17 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, contact, password, otp, referredBy = '' } = req.body;
+    const { name, contact, password, otp, referredBy = '', deviceId = '', deviceFingerprint = '' } = req.body;
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+
+    // Check device blacklist (Winning Heaven Device Block)
+    const isBlocked = await db.isDeviceBlocked({ deviceId, deviceFingerprint, ip: clientIp });
+    if (isBlocked) {
+      return res.status(403).json({
+        error: 'This device has been permanently blocked from GameStrike.io. Please contact customer support.',
+      });
+    }
+
     if (!name || !contact || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required.' });
     }
@@ -412,7 +444,11 @@ app.post('/api/auth/register', async (req, res) => {
       contact: contact.toLowerCase().trim(),
       passwordHash: await bcrypt.hash(password, 10),
       role: 'player',
+      status: 'active',
       tier: 'Starter',
+      deviceId: String(deviceId || '').trim(),
+      deviceFingerprint: String(deviceFingerprint || '').trim(),
+      registrationIp: clientIp,
       referredBy: String(referredBy || '').trim().toUpperCase(),
     });
 
@@ -445,12 +481,36 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { contact, password } = req.body;
+    const { contact, password, deviceId = '', deviceFingerprint = '' } = req.body;
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '';
+
+    // Check device blacklist (Winning Heaven Device Block)
+    const isBlocked = await db.isDeviceBlocked({ deviceId, deviceFingerprint, ip: clientIp });
+    if (isBlocked) {
+      return res.status(403).json({
+        error: 'This device has been permanently blocked from GameStrike.io. Please contact customer support.',
+      });
+    }
+
     const user = await db.findUserByContact(contact || '');
     if (!user) return res.status(401).json({ error: 'Account not found.' });
 
+    if (user.status === 'suspended' || user.isDeviceBlocked) {
+      return res.status(403).json({
+        error: 'Your account has been suspended. Please contact customer support.',
+      });
+    }
+
     const ok = await bcrypt.compare(password || '', user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Incorrect password.' });
+
+    // Update deviceId & IP if provided
+    if (deviceId || deviceFingerprint) {
+      await db.updateUser(user._id, {
+        deviceId: deviceId || user.deviceId,
+        deviceFingerprint: deviceFingerprint || user.deviceFingerprint,
+      });
+    }
 
     res.json({
       token: signToken(user),
@@ -495,6 +555,11 @@ app.post('/api/auth/google', async (req, res) => {
     let user = await db.findUserByContact(googleEmail);
 
     if (user) {
+      if (user.status === 'suspended' || user.isDeviceBlocked) {
+        return res.status(403).json({
+          error: 'Your account has been suspended. Please contact customer support.',
+        });
+      }
       // Existing user — login
       res.json({
         token: signToken(user),
@@ -513,6 +578,7 @@ app.post('/api/auth/google', async (req, res) => {
         contact: googleEmail,
         passwordHash: await bcrypt.hash(randomPass, 10),
         role: 'player',
+        status: 'active',
         tier: 'Starter',
         googlePicture,
       });
@@ -781,6 +847,29 @@ app.delete('/api/chat/message/:messageId', requireAuth, async (req, res) => {
     });
 
     io.to(`user:${msg.userId}`).emit('chat:message-updated', updated);
+    io.to('admins').emit('chat:message-updated', updated);
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// EMOJI REACTION (Winning Heaven Message React)
+app.post('/api/chat/message/:messageId/react', requireAuth, async (req, res) => {
+  try {
+    const { emoji } = req.body;
+    if (!emoji) return res.status(400).json({ error: 'Emoji is required.' });
+
+    const user = await db.findUserById(req.auth.id);
+    const updated = await db.toggleMessageReaction(
+      req.params.messageId,
+      emoji,
+      user?.contact || req.auth.id
+    );
+    if (!updated) return res.status(404).json({ error: 'Message not found.' });
+
+    io.to(`user:${updated.userId}`).emit('chat:message-updated', updated);
     io.to('admins').emit('chat:message-updated', updated);
 
     res.json(updated);
@@ -1556,6 +1645,40 @@ io.on('connection', (socket) => {
   });
 });
 
+// =========================================================
+// ADMIN SUSPEND & DEVICE BLOCK (WINNING HEAVEN STYLE)
+// =========================================================
+app.post('/api/admin/players/:userId/toggle-suspend', requireAdmin, async (req, res) => {
+  try {
+    const { status, reason } = req.body;
+    const updated = await db.toggleUserSuspension(req.params.userId, status, reason);
+    if (!updated) return res.status(404).json({ error: 'Player not found.' });
+
+    // If suspended, disconnect user's active sockets immediately!
+    if (updated.status === 'suspended') {
+      io.to(`user:${updated._id}`).emit('auth:revoked', {
+        reason: updated.deviceBlockReason || 'Account suspended by admin.',
+      });
+    }
+
+    io.to('admins').emit('player:updated', sanitizeUser(updated));
+    res.json({ ok: true, player: sanitizeUser(updated) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/devices/unblock', requireAdmin, async (req, res) => {
+  try {
+    const { deviceId, deviceFingerprint, ip } = req.body;
+    await db.unblockDevice({ deviceId, deviceFingerprint, ip });
+    res.json({ ok: true, message: 'Device unblocked successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Broadcast Socket & Server Initialization
 initPushService();
 await initDatabase();
 

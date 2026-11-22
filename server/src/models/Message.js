@@ -20,6 +20,16 @@ const messageSchema = new mongoose.Schema(
     read: { type: Boolean, default: false },
     edited: { type: Boolean, default: false },
     deletedForEveryone: { type: Boolean, default: false },
+    replyTo: {
+      id: String,
+      text: String,
+      sender: String,
+    },
+    reactions: {
+      type: Map,
+      of: [String],
+      default: {},
+    },
   },
   { timestamps: true }
 );

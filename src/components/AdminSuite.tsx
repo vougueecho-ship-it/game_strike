@@ -104,8 +104,12 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
   const [rules, setRules] = useState({
     welcomeBonusPercent: 100,
     regularBonusPercent: 20,
+    referralBonus: 10,
+    freeplayMinWithdraw: 30,
+    freeplayMaxWithdraw: 100,
     withdrawMultiplier: 3,
     minWithdrawFallback: 20,
+    enforceDeviceLimit: true,
   });
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
@@ -743,7 +747,14 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     <div className="user-avatar-circle">{p.name?.slice(0, 2).toUpperCase()}</div>
                     <div className="thread-meta">
                       <div className="thread-meta-top">
-                        <span className="thread-name">{p.name}</span>
+                        <span className="thread-name">
+                          {p.name}
+                          {p.status === 'suspended' && (
+                            <span style={{ marginLeft: 6, fontSize: '0.65rem', padding: '1px 5px', borderRadius: 4, background: '#ef4444', color: '#fff' }}>
+                              SUSPENDED
+                            </span>
+                          )}
+                        </span>
                         {(unreadMap[String(p._id)] || 0) > 0 && (
                           <span className="admin-nav-badge urgent">
                             {unreadMap[String(p._id)]}
@@ -770,6 +781,49 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{
+                        padding: '6px 11px',
+                        fontSize: '0.74rem',
+                        borderColor: selectedPlayer.status === 'suspended'
+                          ? 'rgba(239, 68, 68, 0.5)'
+                          : 'rgba(255, 31, 75, 0.25)',
+                        color: selectedPlayer.status === 'suspended' ? '#ef4444' : '#f87171',
+                      }}
+                      onClick={async () => {
+                        const isSuspended = selectedPlayer.status === 'suspended';
+                        const confirmMsg = isSuspended
+                          ? `Reactivate account for ${selectedPlayer.name}?`
+                          : `Suspend account and permanently block device for ${selectedPlayer.name}?`;
+                        if (!window.confirm(confirmMsg)) return;
+
+                        try {
+                          const res = await apiFetch<{ ok: boolean; player: any }>(
+                            `/api/admin/players/${selectedPlayer._id}/toggle-suspend`,
+                            {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                status: isSuspended ? 'active' : 'suspended',
+                                reason: isSuspended ? '' : 'Violated terms / multi-account abuse',
+                              }),
+                            },
+                            token
+                          );
+                          if (res.player) {
+                            setPlayers((prev) =>
+                              prev.map((p) => (p._id === res.player._id ? res.player : p))
+                            );
+                          }
+                        } catch (err: any) {
+                          alert(err.message || 'Could not update suspension.');
+                        }
+                      }}
+                    >
+                      {selectedPlayer.status === 'suspended' ? '🚫 Suspended (Reactivate)' : '⛔ Suspend Player'}
+                    </button>
+
                     <button
                       type="button"
                       className="btn-secondary"
@@ -1601,6 +1655,42 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       value={rules.regularBonusPercent}
                       onChange={(e) =>
                         setRules({ ...rules, regularBonusPercent: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Referral Reward ($ Freeplay on 1st $20+ Deposit)</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={0}
+                      value={rules.referralBonus || 10}
+                      onChange={(e) =>
+                        setRules({ ...rules, referralBonus: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Freeplay Min Cashout ($)</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={5}
+                      value={rules.freeplayMinWithdraw || 30}
+                      onChange={(e) =>
+                        setRules({ ...rules, freeplayMinWithdraw: Number(e.target.value) || 30 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Freeplay Max Cashout Cap ($)</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={10}
+                      value={rules.freeplayMaxWithdraw || 100}
+                      onChange={(e) =>
+                        setRules({ ...rules, freeplayMaxWithdraw: Number(e.target.value) || 100 })
                       }
                     />
                   </div>

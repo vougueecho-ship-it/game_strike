@@ -50,6 +50,8 @@ function mapServerMsg(m: any): ChatMessage {
     read: m.read,
     edited: Boolean(m.edited),
     deletedForEveryone: Boolean(m.deletedForEveryone),
+    replyTo: m.replyTo,
+    reactions: m.reactions instanceof Map ? Object.fromEntries(m.reactions) : (m.reactions || {}),
     attachmentUrl: m.attachmentUrl,
     attachmentName: m.attachmentName,
     card: m.card,
@@ -826,6 +828,38 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleReactMessage = async (messageId: string, emoji: string) => {
+    if (token) {
+      try {
+        const updated = await apiFetch<any>(
+          `/api/chat/message/${messageId}/react`,
+          { method: 'POST', body: JSON.stringify({ emoji }) },
+          token
+        );
+        const mapped = mapServerMsg(updated);
+        setMessages((prev) => prev.map((m) => (m.id === mapped.id ? mapped : m)));
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const reactions = { ...(m.reactions || {}) };
+        const myVote = user?.contact?.toLowerCase().trim() || 'me';
+        const currentList = reactions[emoji] || [];
+        if (currentList.includes(myVote)) {
+          reactions[emoji] = currentList.filter((v) => v !== myVote);
+          if (reactions[emoji].length === 0) delete reactions[emoji];
+        } else {
+          reactions[emoji] = [...currentList, myVote];
+        }
+        return { ...m, reactions };
+      })
+    );
+  };
+
   const handleDeleteMessage = async (messageId: string) => {
     if (token) {
       try {
@@ -956,6 +990,7 @@ export const App: React.FC = () => {
       onSendMessage={handleSendMessage}
       onEditMessage={handleEditMessage}
       onDeleteMessage={handleDeleteMessage}
+      onReactMessage={handleReactMessage}
       onTriggerAction={handleTriggerAction}
       onSubmitDeposit={handleSubmitDeposit}
       onSubmitWithdraw={handleSubmitWithdraw}

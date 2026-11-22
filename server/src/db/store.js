@@ -7,6 +7,7 @@ import { Message } from '../models/Message.js';
 import { Ticket } from '../models/Ticket.js';
 import { Game } from '../models/Game.js';
 import { PaymentGateway } from '../models/PaymentGateway.js';
+import { BlockedDevice } from '../models/BlockedDevice.js';
 
 const LOCAL_DB_PATH = path.resolve(process.cwd(), 'data', 'local-db.json');
 
@@ -172,8 +173,12 @@ const SEED_GATEWAYS = [
 const DEFAULT_SETTINGS = {
   welcomeBonusPercent: 100,
   regularBonusPercent: 20,
+  referralBonus: 10,
+  freeplayMinWithdraw: 30,
+  freeplayMaxWithdraw: 100,
   withdrawMultiplier: 3,
   minWithdrawFallback: 20,
+  enforceDeviceLimit: true,
 };
 
 let useMongo = false;
@@ -184,6 +189,7 @@ let localState = {
   games: [],
   gateways: [],
   processedEvents: [],
+  blockedDevices: [],
   settings: { ...DEFAULT_SETTINGS },
   otps: {},
 };
@@ -208,6 +214,7 @@ function loadLocal() {
         games: parsed.games || [],
         gateways: parsed.gateways || [],
         processedEvents: parsed.processedEvents || [],
+        blockedDevices: parsed.blockedDevices || [],
         settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
         otps: parsed.otps || {},
       };
@@ -630,5 +637,180 @@ export const db = {
     localState.gateways.push(created);
     saveLocal();
     return created;
+  },
+
+  // DEVICE BLOCK & ACCOUNT SUSPENSION (WINNING HEAVEN STYLE)
+  async isDeviceBlocked({ deviceId, deviceFingerprint, ip }) {
+    const dId = String(deviceId || '').trim();
+    const dFp = String(deviceFingerprint || '').trim();
+    const userIp = String(ip || '').trim();
+    if (!dId && !dFp && !userIp) return false;
+
+    if (useMongo) {
+      const orConditions = [];
+      if (dId) orConditions.push({ deviceId: dId });
+      if (dFp) orConditions.push({ deviceFingerprint: dFp });
+      if (userIp && userIp !== '127.0.0.1' && userIp !== '::1') orConditions.push({ ip: userIp });
+
+      if (orConditions.length === 0) return false;
+      const found = await BlockedDevice.findOne({ $or: orConditions }).lean();
+      return Boolean(found);
+    }
+
+    return (localState.blockedDevices || []).some((b) => {
+      if (dId && b.deviceId === dId) return true;
+      if (dFp && b.deviceFingerprint === dFp) return true;
+      if (userIp && userIp !== '127.0.0.1' && b.ip === userIp) return true;
+      return false;
+    });
+  },
+
+  async blockDevice({ deviceId, deviceFingerprint, ip, reason = 'Administrative block' }) {
+    const doc = {
+      deviceId: String(deviceId || '').trim(),
+      deviceFingerprint: String(deviceFingerprint || '').trim(),
+      ip: String(ip || '').trim(),
+      reason,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (useMongo) {
+      await BlockedDevice.create(doc);
+    } else {
+      localState.blockedDevices = localState.blockedDevices || [];
+      localState.blockedDevices.push(doc);
+      saveLocal();
+    }
+    return doc;
+  },
+
+  async unblockDevice({ deviceId, deviceFingerprint, ip }) {
+    const dId = String(deviceId || '').trim();
+    const dFp = String(deviceFingerprint || '').trim();
+    const userIp = String(ip || '').trim();
+
+    if (useMongo) {
+      const conds = [];
+      if (dId) conds.push({ deviceId: dId });
+      if (dFp) conds.push({ deviceFingerprint: dFp });
+      if (userIp) conds.push({ ip: userIp });
+      if (conds.length > 0) {
+        await BlockedDevice.deleteMany({ $or: conds });
+      }
+    } else {
+      localState.blockedDevices = (localState.blockedDevices || []).filter((b) => {
+        if (dId && b.deviceId === dId) return false;
+        if (dFp && b.deviceFingerprint === dFp) return false;
+        if (userIp && b.ip === userIp) return false;
+        return true;
+      });
+      saveLocal();
+    }
+    return true;
+  },
+
+  async toggleUserSuspension(userId, newStatus, reason = '') {
+    if (useMongo) {
+      const u = await User.findById(userId);
+      if (!u) return null;
+      const status = newStatus || (u.status === 'suspended' ? 'active' : 'suspended');
+      u.status = status;
+      if (status === 'suspended') {
+        u.isDeviceBlocked = true;
+        u.deviceBlockReason = reason || 'Suspended by Administrator';
+        if (u.deviceId || u.deviceFingerprint || u.registrationIp) {
+          await this.blockDevice({
+            deviceId: u.deviceId,
+            deviceFingerprint: u.deviceFingerprint,
+            ip: u.registrationIp,
+            reason: u.deviceBlockReason,
+          });
+        }
+      } else {
+        u.isDeviceBlocked = false;
+        u.deviceBlockReason = '';
+        if (u.deviceId || u.deviceFingerprint || u.registrationIp) {
+          await this.unblockDevice({
+            deviceId: u.deviceId,
+            deviceFingerprint: u.deviceFingerprint,
+            ip: u.registrationIp,
+          });
+        }
+      }
+      await u.save();
+      return u.toObject();
+    }
+
+    const u = localState.users.find((x) => String(x._id) === String(userId));
+    if (!u) return null;
+    const status = newStatus || (u.status === 'suspended' ? 'active' : 'suspended');
+    u.status = status;
+    if (status === 'suspended') {
+      u.isDeviceBlocked = true;
+      u.deviceBlockReason = reason || 'Suspended by Administrator';
+      if (u.deviceId || u.deviceFingerprint || u.registrationIp) {
+        await this.blockDevice({
+          deviceId: u.deviceId,
+          deviceFingerprint: u.deviceFingerprint,
+          ip: u.registrationIp,
+          reason: u.deviceBlockReason,
+        });
+      }
+    } else {
+      u.isDeviceBlocked = false;
+      u.deviceBlockReason = '';
+      if (u.deviceId || u.deviceFingerprint || u.registrationIp) {
+        await this.unblockDevice({
+          deviceId: u.deviceId,
+          deviceFingerprint: u.deviceFingerprint,
+          ip: u.registrationIp,
+        });
+      }
+    }
+    saveLocal();
+    return u;
+  },
+
+  async toggleMessageReaction(messageId, emoji, userContact) {
+    const voter = String(userContact || '').toLowerCase().trim();
+    if (!voter || !emoji) return null;
+
+    if (useMongo) {
+      const msg = await Message.findById(messageId);
+      if (!msg) return null;
+      const reactions = msg.reactions || new Map();
+      const currentList = reactions.get(emoji) || [];
+      const hasVoted = currentList.includes(voter);
+      let updated;
+      if (hasVoted) {
+        updated = currentList.filter((v) => v !== voter);
+      } else {
+        updated = [...currentList, voter];
+      }
+
+      if (updated.length > 0) {
+        reactions.set(emoji, updated);
+      } else {
+        reactions.delete(emoji);
+      }
+      msg.reactions = reactions;
+      msg.markModified('reactions');
+      await msg.save();
+      return msg.toObject();
+    }
+
+    const m = localState.messages.find((x) => String(x._id) === String(messageId));
+    if (!m) return null;
+    m.reactions = m.reactions || {};
+    const currentList = m.reactions[emoji] || [];
+    const hasVoted = currentList.includes(voter);
+    if (hasVoted) {
+      m.reactions[emoji] = currentList.filter((v) => v !== voter);
+      if (m.reactions[emoji].length === 0) delete m.reactions[emoji];
+    } else {
+      m.reactions[emoji] = [...currentList, voter];
+    }
+    saveLocal();
+    return m;
   },
 };
