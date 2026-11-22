@@ -1,0 +1,893 @@
+import React, { useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Gamepad2,
+  Gift,
+  ImagePlus,
+  Landmark,
+  RefreshCw,
+} from 'lucide-react';
+import {
+  ChatMessage,
+  GameItem,
+  PaymentGateway,
+  PlatformSettings,
+  TicketItem,
+  UserProfile,
+} from '../types';
+
+interface InlineChatCardProps {
+  message: ChatMessage;
+  user?: UserProfile;
+  settings?: PlatformSettings;
+  games: GameItem[];
+  gateways: PaymentGateway[];
+  tickets?: TicketItem[];
+  onSubmitDeposit: (data: {
+    game: string;
+    amount: number;
+    method: string;
+    handle: string;
+    receiptScreenshotUrl?: string;
+  }) => void;
+  onSubmitWithdraw: (data: {
+    game: string;
+    gameUser: string;
+    amount: number;
+    method: string;
+    payoutTag: string;
+    balanceScreenshotUrl?: string;
+    qrScreenshotUrl?: string;
+  }) => void;
+  onSubmitGameId: (game: string) => void;
+  onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
+  onClaimPromo: (promoTitle: string, code: string) => void;
+  onSyncCashTap?: (ticketId: string) => void;
+}
+
+export const InlineChatCard: React.FC<InlineChatCardProps> = ({
+  message,
+  user,
+  settings = {
+    welcomeBonusPercent: 100,
+    regularBonusPercent: 20,
+    withdrawMultiplier: 3,
+    minWithdrawFallback: 20,
+  },
+  games,
+  gateways,
+  tickets = [],
+  onSubmitDeposit,
+  onSubmitWithdraw,
+  onSubmitGameId,
+  onSubmitIssue,
+  onClaimPromo,
+  onSyncCashTap,
+}) => {
+  const defaultGame =
+    message.cardData?.preselectedGame ||
+    (games.length > 0 ? games[0].name : 'GameStrike Wallet');
+
+  const [game, setGame] = useState(defaultGame);
+  const [amount, setAmount] = useState<number>(20);
+  const [methodId, setMethodId] = useState(gateways[0]?.id || 'cashtap');
+  const [gameUser, setGameUser] = useState('');
+  const [payoutTag, setPayoutTag] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState('');
+  const [balanceShotUrl, setBalanceShotUrl] = useState('');
+  const [qrShotUrl, setQrShotUrl] = useState('');
+  const [formErr, setFormErr] = useState('');
+  const [issueCategory, setIssueCategory] = useState('Payment Sent, Credits Not Received');
+  const [issueRef, setIssueRef] = useState('');
+  const [issueDetails, setIssueDetails] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const readImageFile = (file: File | undefined, cb: (dataUrl: string) => void) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') cb(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const copyField = (key: string, val: string) => {
+    navigator.clipboard?.writeText(val);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1600);
+  };
+
+  const selectedGateway =
+    gateways.find((g) => g.id === methodId) || gateways[0];
+
+  if (message.card === 'deposit-form') {
+    const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
+    const bonusPct = isFirstDeposit
+      ? Number(settings.welcomeBonusPercent || 0)
+      : Number(settings.regularBonusPercent || 0);
+    const bonusAmt = Number(((amount * bonusPct) / 100).toFixed(2));
+    const totalCredit = Number((amount + bonusAmt).toFixed(2));
+    const isManualGw =
+      selectedGateway &&
+      !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(selectedGateway.id);
+
+    return (
+      <div className="inline-card">
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <ArrowDownCircle size={18} color="#ff1f4b" />
+            <span>{isManualGw ? `Manual Deposit (${selectedGateway.name})` : 'Auto Deposit (CashTap)'}</span>
+          </div>
+          <span className="status-pill verified">
+            {isFirstDeposit ? `+${bonusPct}% Welcome` : `+${bonusPct}% Reload`}
+          </span>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Destination Game</label>
+          <select
+            className="field-input"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            value={game}
+            onChange={(e) => setGame(e.target.value)}
+            disabled={submitted}
+          >
+            {games.length === 0 ? (
+              <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+            ) : (
+              games.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Amount (USD)</label>
+          <div className="amount-grid">
+            {[10, 20, 50, 100].map((val) => (
+              <button
+                key={val}
+                type="button"
+                disabled={submitted}
+                className={`amount-pill ${amount === val ? 'active' : ''}`}
+                onClick={() => setAmount(val)}
+              >
+                ${val}
+              </button>
+            ))}
+          </div>
+          <input
+            className="field-input mono"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            type="number"
+            step="0.5"
+            min={0.5}
+            value={amount}
+            onChange={(e) => setAmount(Number(e.target.value) || 1)}
+            disabled={submitted}
+          />
+        </div>
+
+        {/* Live Welcome / Regular Bonus Calculation Preview */}
+        <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px', fontSize: '0.78rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              {isFirstDeposit ? 'Welcome Bonus (1st Deposit Only)' : 'Regular Reload Bonus'} ({bonusPct}%)
+            </span>
+            <strong className="mono" style={{ color: '#ffd166' }}>+${bonusAmt.toFixed(2)}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Total Game Credit</span>
+            <strong className="mono" style={{ color: '#4ade80' }}>${totalCredit.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Payment Method</label>
+          <select
+            className="field-input"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            value={methodId}
+            onChange={(e) => {
+              setMethodId(e.target.value);
+              setFormErr('');
+            }}
+            disabled={submitted}
+          >
+            {gateways
+              .filter((g) => g.supportsDeposit)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        {isManualGw && selectedGateway && (
+          <>
+            <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Send ${amount} to official {selectedGateway.name} Tag:
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
+                <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
+                  {selectedGateway.handle}
+                </strong>
+                <button
+                  type="button"
+                  className="msg-act-btn"
+                  onClick={() => copyField('dep-tag', selectedGateway.handle)}
+                >
+                  {copiedKey === 'dep-tag' ? <CheckCircle2 size={12} color="#22c55e" /> : <Copy size={12} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="field-group" style={{ marginBottom: 10 }}>
+              <label className="field-label">Upload Payment Receipt Screenshot (Required)</label>
+              <label
+                className="btn-secondary"
+                style={{ width: '100%', padding: '9px 12px', fontSize: '0.8rem', cursor: 'pointer' }}
+              >
+                <ImagePlus size={15} color="#ffd166" />
+                <span>{receiptUrl ? 'Receipt Attached ✓ (Change)' : 'Choose Receipt Screenshot'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  disabled={submitted}
+                  onChange={(e) => readImageFile(e.target.files?.[0], setReceiptUrl)}
+                />
+              </label>
+              {receiptUrl && (
+                <img
+                  src={receiptUrl}
+                  alt="Receipt preview"
+                  style={{ width: '100%', maxHeight: 110, objectFit: 'cover', borderRadius: 9, marginTop: 6 }}
+                />
+              )}
+            </div>
+          </>
+        )}
+
+        {formErr && (
+          <div style={{ color: '#ff6b86', fontSize: '0.78rem', marginBottom: 8 }}>{formErr}</div>
+        )}
+
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+          disabled={submitted}
+          onClick={() => {
+            if (isManualGw && !receiptUrl) {
+              setFormErr('Please upload your payment receipt screenshot first.');
+              return;
+            }
+            setFormErr('');
+            setSubmitted(true);
+            onSubmitDeposit({
+              game,
+              amount: Math.max(0.5, amount),
+              method: selectedGateway?.id || 'cashtap',
+              handle: selectedGateway?.handle || 'pay.cashtap.cash',
+              receiptScreenshotUrl: receiptUrl || undefined,
+            });
+          }}
+        >
+          {submitted
+            ? 'Deposit Submitted ✓'
+            : isManualGw
+            ? `Submit $${amount} Receipt (Load $${totalCredit})`
+            : `Pay $${amount} via CashTap (Load $${totalCredit})`}
+        </button>
+      </div>
+    );
+  }
+
+  if (message.card === 'withdraw-form') {
+    const withdrawGateways = gateways.filter((g) => g.supportsWithdraw);
+    const activeWdGw =
+      withdrawGateways.find((g) => g.id === methodId) || withdrawGateways[0];
+
+    const lastLoad =
+      Number(user?.lastTotalLoad || 0) ||
+      Number(user?.lastDepositAmount || 0) + Number(user?.lastBonusAmount || 0);
+    const minWd =
+      lastLoad > 0
+        ? Number((lastLoad * Number(settings.withdrawMultiplier || 3)).toFixed(2))
+        : Number(settings.minWithdrawFallback || 20);
+
+    const savedGameCred = tickets.find(
+      (t) =>
+        t.type === 'game-id' &&
+        String(t.game || '').toLowerCase() === String(game || '').toLowerCase() &&
+        t.gameUser
+    );
+    const effectiveGameUser = gameUser || savedGameCred?.gameUser || '';
+
+    return (
+      <div className="inline-card">
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <ArrowUpCircle size={18} color="#22c55e" />
+            <span>Manual Cashout / Withdraw</span>
+          </div>
+          <span className="status-pill verified">Min ${minWd}</span>
+        </div>
+
+        <div className="ticket-mini" style={{ marginBottom: 10, padding: '8px 10px', fontSize: '0.75rem', color: '#ffd166' }}>
+          Rule: Minimum cashout is <strong>${minWd}</strong> ({settings.withdrawMultiplier}x of last load + bonus{lastLoad > 0 ? `: $${lastLoad}` : ''}). Both screenshots are required.
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 9 }}>
+          <label className="field-label">Game Platform</label>
+          <select
+            className="field-input"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            value={game}
+            onChange={(e) => setGame(e.target.value)}
+            disabled={submitted}
+          >
+            {games.length === 0 ? (
+              <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+            ) : (
+              games.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 9 }}>
+          <label className="field-label">Your Game Username / ID</label>
+          <input
+            className="field-input mono"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            placeholder="e.g. gs_player_1024"
+            value={effectiveGameUser}
+            onChange={(e) => setGameUser(e.target.value)}
+            disabled={submitted}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 9 }}>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <label className="field-label">Amount ($)</label>
+            <input
+              className="field-input mono"
+              style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+              type="number"
+              min={minWd}
+              value={amount < minWd ? minWd : amount}
+              onChange={(e) => setAmount(Number(e.target.value) || minWd)}
+              disabled={submitted}
+            />
+          </div>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <label className="field-label">Payout Method</label>
+            <select
+              className="field-input"
+              style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+              value={activeWdGw?.id || ''}
+              onChange={(e) => setMethodId(e.target.value)}
+              disabled={submitted}
+            >
+              {withdrawGateways.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 9 }}>
+          <label className="field-label">Your Payout Tag / Wallet</label>
+          <input
+            className="field-input"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            placeholder="e.g. $YourChimeTag or $CashTag"
+            value={payoutTag}
+            onChange={(e) => setPayoutTag(e.target.value)}
+            disabled={submitted}
+          />
+        </div>
+
+        {/* 2 MANDATORY SCREENSHOTS FOR WITHDRAWAL */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <label
+            className="btn-secondary"
+            style={{ padding: '9px 8px', fontSize: '0.74rem', cursor: 'pointer', flexDirection: 'column', gap: 4 }}
+          >
+            <ImagePlus size={15} color={balanceShotUrl ? '#22c55e' : '#ffd166'} />
+            <span>{balanceShotUrl ? '1. Balance ✓' : '1. Game Balance SS'}</span>
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              disabled={submitted}
+              onChange={(e) => readImageFile(e.target.files?.[0], setBalanceShotUrl)}
+            />
+          </label>
+
+          <label
+            className="btn-secondary"
+            style={{ padding: '9px 8px', fontSize: '0.74rem', cursor: 'pointer', flexDirection: 'column', gap: 4 }}
+          >
+            <ImagePlus size={15} color={qrShotUrl ? '#22c55e' : '#ffd166'} />
+            <span>{qrShotUrl ? '2. Tag / QR ✓' : '2. Tag / QR Code SS'}</span>
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              disabled={submitted}
+              onChange={(e) => readImageFile(e.target.files?.[0], setQrShotUrl)}
+            />
+          </label>
+        </div>
+
+        {formErr && (
+          <div style={{ color: '#ff6b86', fontSize: '0.78rem', marginBottom: 8 }}>{formErr}</div>
+        )}
+
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+          disabled={submitted}
+          onClick={() => {
+            const finalAmt = amount < minWd ? minWd : amount;
+            if (!effectiveGameUser.trim()) {
+              setFormErr('Please enter your Game Username / ID.');
+              return;
+            }
+            if (!balanceShotUrl || !qrShotUrl) {
+              setFormErr('Please upload BOTH screenshots: (1) Game Balance and (2) Payout Tag / QR Code.');
+              return;
+            }
+            setFormErr('');
+            setSubmitted(true);
+            onSubmitWithdraw({
+              game,
+              gameUser: effectiveGameUser.trim(),
+              amount: finalAmt,
+              method: activeWdGw?.id || 'chime',
+              payoutTag: payoutTag.trim() || 'See Attached QR',
+              balanceScreenshotUrl: balanceShotUrl,
+              qrScreenshotUrl: qrShotUrl,
+            });
+          }}
+        >
+          {submitted ? 'Cashout Submitted ✓' : `Request $${amount < minWd ? minWd : amount} Cashout`}
+        </button>
+      </div>
+    );
+  }
+
+  if (message.card === 'game-id-form') {
+    const existingCred = tickets.find(
+      (t) =>
+        t.type === 'game-id' &&
+        String(t.game || '').toLowerCase() === String(game || '').toLowerCase() &&
+        t.status !== 'Rejected'
+    );
+
+    return (
+      <div className="inline-card">
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <Gamepad2 size={18} color="#ffd166" />
+            <span>{existingCred ? `${game} Credentials` : 'Create Instant Game ID'}</span>
+          </div>
+          <span className="status-pill verified">
+            {existingCred ? (existingCred.gameUser ? 'Active ID' : 'Pending') : '1 ID / Game'}
+          </span>
+        </div>
+
+        {games.length === 0 ? (
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            No API-connected games have been added yet. Add your game APIs from the <strong>Admin Panel → Games &amp; APIs</strong> and they will appear here automatically.
+          </p>
+        ) : (
+          <>
+            <div className="field-group" style={{ marginBottom: 12 }}>
+              <label className="field-label">Choose Connected Game</label>
+              <select
+                className="field-input"
+                style={{ padding: '9px 10px', fontSize: '0.86rem' }}
+                value={game}
+                onChange={(e) => setGame(e.target.value)}
+                disabled={submitted}
+              >
+                {games.map((g) => (
+                  <option key={g.id} value={g.name}>
+                    {g.name} ({g.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {existingCred ? (
+              existingCred.gameUser ? (
+                <div className="ticket-mini" style={{ padding: 12, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: '0.76rem', color: '#4ade80', fontWeight: 600 }}>
+                    ✓ You already have a {game} account — copy your credentials below:
+                  </div>
+                  <div className="receipt-row" style={{ padding: '4px 0' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Username</span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <strong className="mono">{existingCred.gameUser}</strong>
+                      <button
+                        type="button"
+                        className="msg-act-btn"
+                        title="Copy Username"
+                        onClick={() => copyField(`ex-u-${existingCred.id}`, existingCred.gameUser || '')}
+                      >
+                        {copiedKey === `ex-u-${existingCred.id}` ? (
+                          <CheckCircle2 size={12} color="#22c55e" />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="receipt-row" style={{ padding: '4px 0' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Password</span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <strong className="mono">{existingCred.gamePassword || '—'}</strong>
+                      <button
+                        type="button"
+                        className="msg-act-btn"
+                        title="Copy Password"
+                        onClick={() => copyField(`ex-p-${existingCred.id}`, existingCred.gamePassword || '')}
+                      >
+                        {copiedKey === `ex-p-${existingCred.id}` ? (
+                          <CheckCircle2 size={12} color="#22c55e" />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="ticket-mini" style={{ padding: 11, fontSize: '0.8rem', color: '#ffd166' }}>
+                  ⏳ Your {game} ID request ({existingCred.id}) is already pending with our Admin Desk. Duplicate requests are disabled.
+                </div>
+              )
+            ) : (
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+                disabled={submitted}
+                onClick={() => {
+                  setSubmitted(true);
+                  onSubmitGameId(game);
+                }}
+              >
+                {submitted ? 'Game ID Requested ✓' : `Generate ${game} Login`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (message.card === 'payment-methods') {
+    return (
+      <div className="inline-card">
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <Landmark size={18} color="#2563eb" />
+            <span>CashTap Automated Gateways</span>
+          </div>
+          <span className="status-pill verified">Live API</span>
+        </div>
+
+        <div style={{ display: 'grid', gap: 7 }}>
+          {gateways.map((gw) => (
+            <div
+              key={gw.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '7px 10px',
+                borderRadius: 9,
+                background: 'var(--bg-surface-soft)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.8rem',
+              }}
+            >
+              <div>
+                <strong>{gw.name}</strong>
+                <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  Min ${gw.minAmount} • {gw.handle}
+                </div>
+              </div>
+              <span className="status-pill verified">{gw.badge}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.card === 'bonuses') {
+    return (
+      <div className="inline-card">
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <Gift size={18} color="#10b981" />
+            <span>Active Bonuses & Freeplay</span>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {[
+            { title: '100% First Deposit Match', code: 'STRIKE100', desc: 'Double your first CashTap load up to $200.' },
+            { title: '20% Daily Reload Bonus', code: 'RELOAD20', desc: '20% extra on daily deposits of $20+.' },
+          ].map((offer) => (
+            <div
+              key={offer.code}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 11,
+                background: 'var(--bg-surface-soft)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <strong style={{ fontSize: '0.84rem' }}>{offer.title}</strong>
+                <span className="mono" style={{ fontSize: '0.72rem', color: 'var(--gs-cobalt)', fontWeight: 700 }}>
+                  {offer.code}
+                </span>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8 }}>{offer.desc}</p>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ width: '100%', padding: '6px 10px', fontSize: '0.78rem' }}
+                onClick={() => onClaimPromo(offer.title, offer.code)}
+              >
+                Claim in Chat
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.card === 'issue-form') {
+    const issueTypes = [
+      'Payment Sent, Credits Not Received',
+      'Withdrawal Delay / Cashout Issue',
+      'Game Not Opening / Login Error',
+      'Account Stuck In-Game (Need Kick Offline)',
+      'Other — Connect to Live Agent',
+    ];
+
+    return (
+      <div className="inline-card" style={{ borderColor: 'rgba(255, 31, 75, 0.45)' }}>
+        <div className="inline-card-header">
+          <div className="inline-card-title">
+            <AlertTriangle size={18} color="#ff1f4b" />
+            <span>Report Issue / Live Agent</span>
+          </div>
+          <span className="status-pill processing">Priority Desk</span>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 9 }}>
+          <label className="field-label">What happened?</label>
+          <select
+            className="field-input"
+            style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+            value={issueCategory}
+            onChange={(e) => setIssueCategory(e.target.value)}
+            disabled={submitted}
+          >
+            {issueTypes.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 9 }}>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <label className="field-label">Game (Optional)</label>
+            <select
+              className="field-input"
+              style={{ padding: '8px 10px', fontSize: '0.82rem' }}
+              value={game}
+              onChange={(e) => setGame(e.target.value)}
+              disabled={submitted}
+            >
+              <option value="">General / Wallet</option>
+              {games.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field-group" style={{ marginBottom: 0 }}>
+            <label className="field-label">Ticket / Game ID</label>
+            <input
+              className="field-input mono"
+              style={{ padding: '8px 10px', fontSize: '0.82rem' }}
+              placeholder="e.g. DEP-1024"
+              value={issueRef}
+              onChange={(e) => setIssueRef(e.target.value)}
+              disabled={submitted}
+            />
+          </div>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <label className="field-label">Explain Briefly</label>
+          <textarea
+            className="field-input"
+            rows={2}
+            style={{ padding: '8px 10px', fontSize: '0.84rem', resize: 'none' }}
+            placeholder="Describe the issue (you can also upload a screenshot using the image button below)..."
+            value={issueDetails}
+            onChange={(e) => setIssueDetails(e.target.value)}
+            disabled={submitted}
+          />
+        </div>
+
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+          disabled={submitted}
+          onClick={() => {
+            setSubmitted(true);
+            onSubmitIssue?.({
+              category: issueCategory,
+              game,
+              referenceId: issueRef.trim(),
+              details: issueDetails.trim(),
+            });
+          }}
+        >
+          {submitted ? 'Escalated to Live Agent ✓' : 'Alert Live Support Agent Now'}
+        </button>
+      </div>
+    );
+  }
+
+  if (message.card === 'ticket-receipt' && message.cardData) {
+    const d = message.cardData;
+    return (
+      <div className="inline-card ticket-receipt">
+        <div className="inline-card-header" style={{ borderBottomColor: 'rgba(16,185,129,0.22)' }}>
+          <div className="inline-card-title">
+            <CheckCircle2 size={18} color="#10b981" />
+            <span>Ticket {d.ticketId}</span>
+          </div>
+          <span className="status-pill verified">
+            {d.checkoutUrl ? 'CashTap Ready' : 'Confirmed'}
+          </span>
+        </div>
+
+        {d.game && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Destination</span>
+            <strong>{d.game}</strong>
+          </div>
+        )}
+        {d.amount !== undefined && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Amount</span>
+            <strong className="mono" style={{ color: 'var(--gs-emerald)' }}>${d.amount}</strong>
+          </div>
+        )}
+        {d.method && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Gateway</span>
+            <strong>{d.method}</strong>
+          </div>
+        )}
+        {d.sessionId && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Session</span>
+            <strong className="mono" style={{ fontSize: '0.74rem' }}>{d.sessionId}</strong>
+          </div>
+        )}
+        {d.loginId && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Username / ID</span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <strong className="mono">{d.loginId}</strong>
+              <button
+                type="button"
+                className="msg-act-btn"
+                title="Copy Username"
+                onClick={() => copyField('login', d.loginId!)}
+              >
+                {copiedKey === 'login' ? (
+                  <CheckCircle2 size={12} color="#22c55e" />
+                ) : (
+                  <Copy size={12} />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+        {d.tempPass && (
+          <div className="receipt-row">
+            <span style={{ color: 'var(--text-muted)' }}>Password</span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <strong className="mono">{d.tempPass}</strong>
+              <button
+                type="button"
+                className="msg-act-btn"
+                title="Copy Password"
+                onClick={() => copyField('pass', d.tempPass!)}
+              >
+                {copiedKey === 'pass' ? (
+                  <CheckCircle2 size={12} color="#22c55e" />
+                ) : (
+                  <Copy size={12} />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {d.checkoutUrl && (
+          <div style={{ display: 'grid', gap: 7, marginTop: 12 }}>
+            <a
+              href={d.checkoutUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary"
+              style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+            >
+              <span>Pay Now on CashTap</span>
+              <ExternalLink size={15} />
+            </a>
+
+            {d.ticketId && onSyncCashTap && (
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ width: '100%', padding: '8px 12px', fontSize: '0.78rem' }}
+                disabled={syncing}
+                onClick={async () => {
+                  setSyncing(true);
+                  await onSyncCashTap(d.ticketId!);
+                  setSyncing(false);
+                }}
+              >
+                <RefreshCw size={13} />
+                <span>{syncing ? 'Checking CashTap...' : 'Verify / Sync Payment Status'}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+};

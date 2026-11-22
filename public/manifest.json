@@ -1,0 +1,24 @@
+{
+  "name": "GameStrike.io — 24/7 Gaming Concierge",
+  "short_name": "GameStrike",
+  "description": "24/7 Gaming Concierge, Instant Deposits, Fast Cashouts & Live Games",
+  "start_url": "/#/chat",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#07070A",
+  "theme_color": "#FF1F4B",
+  "icons": [
+    {
+      "src": "/gamestrike-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/gamestrike-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

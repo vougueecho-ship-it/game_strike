@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "893262340852",
+    "project_id": "gamestrike-f1060",
+    "storage_bucket": "gamestrike-f1060.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:893262340852:android:201e3c214047ff9fe8b4a1",
+        "android_client_info": {
+          "package_name": "io.gamestrike.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbsPAGHrDYMnooJyqAFq_0AtGYoDMX72s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
