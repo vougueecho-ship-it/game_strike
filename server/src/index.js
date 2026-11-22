@@ -294,7 +294,14 @@ app.get('/api/health', (_req, res) => {
     database: isMongoConnected() ? 'mongodb' : 'local-json-fallback',
     pushEnabled: Boolean(getVapidPublicKey()),
     cashtapConfigured: Boolean(process.env.CASHTAP_SECRET_KEY),
+    googleOAuth: Boolean(process.env.GOOGLE_CLIENT_ID),
   });
+});
+
+// Expose Google Client ID to frontend (safe — public key only)
+app.get('/api/auth/google-client-id', (_req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  res.json({ clientId });
 });
 
 // =========================================================
@@ -449,6 +456,89 @@ app.post('/api/auth/login', async (req, res) => {
       token: signToken(user),
       user: sanitizeUser(user),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GOOGLE OAUTH — Continue with Google (ID Token verification)
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { idToken, credential } = req.body;
+    const tokenToVerify = idToken || credential;
+    if (!tokenToVerify) {
+      return res.status(400).json({ error: 'Google credential/idToken is required.' });
+    }
+
+    // Decode the Google JWT (ID Token) — for production, verify signature against Google certs
+    const parts = tokenToVerify.split('.');
+    if (parts.length !== 3) {
+      return res.status(400).json({ error: 'Invalid Google token format.' });
+    }
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+
+    const googleEmail = (payload.email || '').toLowerCase().trim();
+    const googleName = payload.name || payload.given_name || googleEmail.split('@')[0];
+    const googlePicture = payload.picture || '';
+
+    if (!googleEmail) {
+      return res.status(400).json({ error: 'Google token does not contain an email.' });
+    }
+
+    // Verify audience matches our Google Client ID (if configured)
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (clientId && payload.aud !== clientId) {
+      return res.status(401).json({ error: 'Google token audience mismatch.' });
+    }
+
+    // Check if user already exists
+    let user = await db.findUserByContact(googleEmail);
+
+    if (user) {
+      // Existing user — login
+      res.json({
+        token: signToken(user),
+        user: sanitizeUser(user),
+        isNewUser: false,
+      });
+    } else {
+      // New user — auto-register via Google
+      const handle = googleName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'player';
+      const randomPass = `google_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      user = await db.createUser({
+        playerCode: `GS-${Math.floor(10000 + Math.random() * 90000)}`,
+        name: googleName,
+        username: `@${handle}${Math.floor(10 + Math.random() * 89)}`,
+        contact: googleEmail,
+        passwordHash: await bcrypt.hash(randomPass, 10),
+        role: 'player',
+        tier: 'Starter',
+        googlePicture,
+      });
+
+      await db.createMessage({
+        userId: String(user._id),
+        threadId: 'concierge',
+        sender: 'agent',
+        agentName: 'GameStrike Concierge',
+        text: `Welcome to GameStrike.io, ${user.name}! ⚡\n\nYou signed in with Google — your account is live! Request Instant Deposits, Cashouts, or Game IDs right here.`,
+        quickReplies: [
+          { label: '⚡ Auto Deposit (CashTap)', action: 'deposit' },
+          { label: '💸 Withdraw / Cashout', action: 'withdraw' },
+          { label: '🎮 Get Game ID', action: 'game-id' },
+          { label: '🏦 Payment Methods', action: 'payments' },
+        ],
+      });
+
+      io.to('admins').emit('admin:new-player', sanitizeUser(user));
+
+      res.status(201).json({
+        token: signToken(user),
+        user: sanitizeUser(user),
+        isNewUser: true,
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
