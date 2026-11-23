@@ -3,12 +3,14 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   CheckCircle2,
+  Copy,
   Download,
   ExternalLink,
   Flame,
   Gamepad2,
   Gift,
   Home,
+  ImagePlus,
   MessageSquare,
   Plug,
   Search,
@@ -37,6 +39,7 @@ interface GamesLandingPageProps {
     amount: number;
     method: string;
     handle: string;
+    receiptScreenshotUrl?: string;
   }) => Promise<{ checkoutUrl?: string; error?: string } | void>;
   onSubmitWithdrawFromPage: (data: {
     game: string;
@@ -127,6 +130,8 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   const [gameUser, setGameUser] = useState('');
   const [payoutTag, setPayoutTag] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState('');
+  const [copiedTag, setCopiedTag] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -187,6 +192,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
           amount: Math.max(0.5, amount),
           method: activeGateway?.id || 'cashtap',
           handle: activeGateway?.handle || 'pay.cashtap.cash',
+          receiptScreenshotUrl: receiptUrl || undefined,
         });
         if (res && res.error) {
           setErrorMsg(res.error);
@@ -909,11 +915,119 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                       )
                       .map((g) => (
                         <option key={g.id} value={g.id}>
-                          {g.name}
+                          {g.name} ({g.badge || 'Verified'})
                         </option>
                       ))}
                   </select>
                 </div>
+
+                {/* Manual Gateway Details & Receipt in Modal */}
+                {walletTab === 'deposit' && activeGateway && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(activeGateway.id) && (
+                  <div style={{ background: 'var(--nx-bg-surface-soft)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Send ${amount} to official {activeGateway.name} Tag:
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: 6 }}>
+                      <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
+                        {activeGateway.handle}
+                      </strong>
+                      <button
+                        type="button"
+                        className="msg-act-btn"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(activeGateway.handle);
+                          setCopiedTag(true);
+                          setTimeout(() => setCopiedTag(false), 1600);
+                        }}
+                        title="Copy payment tag"
+                      >
+                        {copiedTag ? <CheckCircle2 size={13} color="#22c55e" /> : <Copy size={13} />}
+                      </button>
+                    </div>
+
+                    {activeGateway.directPaymentLink && (
+                      <div style={{ marginTop: 6, fontSize: '0.76rem' }}>
+                        <a
+                          href={activeGateway.directPaymentLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <ExternalLink size={12} />
+                          <span>Open Direct Payment Link ↗</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {activeGateway.qrImageUrl && (
+                      <div style={{ marginTop: 8, textAlign: 'center' }}>
+                        <img
+                          src={activeGateway.qrImageUrl}
+                          alt={`${activeGateway.name} QR`}
+                          style={{ width: 110, height: 110, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 4 }}
+                        />
+                        <div style={{ marginTop: 4 }}>
+                          <button
+                            type="button"
+                            className="msg-act-btn"
+                            style={{ fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            onClick={() => {
+                              const a = document.createElement('a');
+                              a.href = activeGateway.qrImageUrl!;
+                              a.download = `${activeGateway.name.replace(/\s+/g, '_')}_QR.png`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                            }}
+                          >
+                            <Download size={11} />
+                            <span>Download QR Code</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Receipt Screenshot Upload */}
+                    <div style={{ marginTop: 10 }}>
+                      <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                        Payment Receipt Screenshot (Required)
+                      </label>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          padding: '9px 12px',
+                          borderRadius: 8,
+                          border: receiptUrl ? '1px solid #22c55e' : '1px dashed var(--border-subtle)',
+                          background: 'rgba(0,0,0,0.2)',
+                          cursor: 'pointer',
+                          fontSize: '0.76rem',
+                          color: receiptUrl ? '#4ade80' : 'var(--text-muted)',
+                        }}
+                      >
+                        <ImagePlus size={14} />
+                        <span>{receiptUrl ? '✓ Receipt Attached (Tap to change)' : 'Tap to upload payment screenshot'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) {
+                              const r = new FileReader();
+                              r.onload = () => {
+                                if (typeof r.result === 'string') setReceiptUrl(r.result);
+                              };
+                              r.readAsDataURL(f);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
 
                 {walletTab === 'withdraw' && (
                   <div className="field-group">
@@ -937,9 +1051,11 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                   <Zap size={16} />
                   <span>
                     {submitting
-                      ? 'Creating Checkout...'
+                      ? 'Processing...'
                       : walletTab === 'deposit'
-                      ? `Pay $${amount} via CashTap`
+                      ? (activeGateway && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(activeGateway.id)
+                          ? `Confirm & Submit $${amount} via ${activeGateway.name}`
+                          : `Pay $${amount} via CashTap ⚡`)
                       : `Request $${Math.max(10, amount)} Cashout`}
                   </span>
                 </button>

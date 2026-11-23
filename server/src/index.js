@@ -269,12 +269,20 @@ function sanitizeUser(u) {
   };
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
     req.auth = jwt.verify(token, JWT_SECRET);
+    if (req.auth.userId && req.auth.role !== 'admin') {
+      const u = await db.findUserById(req.auth.userId);
+      if (u && (u.status === 'suspended' || u.isDeviceBlocked)) {
+        return res.status(403).json({
+          error: 'Your account has been suspended. Please contact customer support.',
+        });
+      }
+    }
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

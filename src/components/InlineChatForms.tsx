@@ -77,6 +77,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   const [game, setGame] = useState(defaultGame);
   const [amount, setAmount] = useState<number>(20);
   const [methodId, setMethodId] = useState(gateways[0]?.id || 'cashtap');
+  const [activePayMethod, setActivePayMethod] = useState<PaymentGateway | null>(null);
   const [gameUser, setGameUser] = useState('');
   const [payoutTag, setPayoutTag] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
@@ -628,40 +629,338 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   }
 
   if (message.card === 'payment-methods') {
+    const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
+    const bonusPct = isFirstDeposit
+      ? Number(settings.welcomeBonusPercent || 0)
+      : Number(settings.regularBonusPercent || 0);
+    const bonusAmt = Number(((amount * bonusPct) / 100).toFixed(2));
+    const totalCredit = Number((amount + bonusAmt).toFixed(2));
+
+    const curGw = activePayMethod || gateways.find((g) => g.id === methodId) || gateways[0];
+    const isManual = curGw && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(curGw.id);
+
+    // If a user clicked "Pay with [Gateway]" or clicked the card, show direct interactive payment form!
+    if (activePayMethod && curGw) {
+      return (
+        <div className="inline-card">
+          <div className="inline-card-header">
+            <button
+              type="button"
+              className="msg-act-btn"
+              style={{ fontSize: '0.74rem', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={() => setActivePayMethod(null)}
+            >
+              <span>← All Gateways</span>
+            </button>
+            <span className="status-pill verified">
+              {curGw.name} ({curGw.badge || 'Verified'})
+            </span>
+          </div>
+
+          <div style={{ margin: '8px 0 12px 0' }}>
+            <div style={{ fontSize: '0.86rem', fontWeight: 700, color: '#fff' }}>
+              Deposit via {curGw.name}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              Min: ${curGw.minAmount || 5} • Max: ${curGw.maxAmount || 2500} • ETA: {curGw.eta || 'Instant'}
+            </div>
+          </div>
+
+          {/* Destination Game */}
+          <div className="field-group" style={{ marginBottom: 10 }}>
+            <label className="field-label">Destination Game</label>
+            <select
+              className="field-input"
+              style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+              value={game}
+              onChange={(e) => setGame(e.target.value)}
+              disabled={submitted}
+            >
+              {games.length === 0 ? (
+                <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+              ) : (
+                games.map((g) => (
+                  <option key={g.id} value={g.name}>
+                    {g.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          {/* Amount Selection */}
+          <div className="field-group" style={{ marginBottom: 10 }}>
+            <label className="field-label">Amount (USD)</label>
+            <div className="amount-grid">
+              {[10, 20, 50, 100].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  disabled={submitted}
+                  className={`amount-pill ${amount === val ? 'active' : ''}`}
+                  onClick={() => setAmount(val)}
+                >
+                  ${val}
+                </button>
+              ))}
+            </div>
+            <input
+              className="field-input mono"
+              style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+              type="number"
+              step="0.5"
+              min={curGw.minAmount || 0.5}
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value) || 1)}
+              disabled={submitted}
+            />
+          </div>
+
+          {/* Live Bonus Preview */}
+          <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px', fontSize: '0.78rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-muted)' }}>
+                {isFirstDeposit ? 'Welcome Match' : 'Reload Bonus'} ({bonusPct}%)
+              </span>
+              <strong className="mono" style={{ color: '#ffd166' }}>+${bonusAmt.toFixed(2)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Total Credits to Game</span>
+              <strong className="mono" style={{ color: '#4ade80' }}>${totalCredit.toFixed(2)}</strong>
+            </div>
+          </div>
+
+          {/* Manual Gateway Specifics: Handle, QR, Download, Direct Link */}
+          {isManual && (
+            <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Send ${amount} to official {curGw.name} Tag:
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
+                <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
+                  {curGw.handle}
+                </strong>
+                <button
+                  type="button"
+                  className="msg-act-btn"
+                  onClick={() => copyField(`gw-${curGw.id}`, curGw.handle)}
+                  title="Copy payment tag"
+                >
+                  {copiedKey === `gw-${curGw.id}` ? <CheckCircle2 size={12} color="#22c55e" /> : <Copy size={12} />}
+                </button>
+              </div>
+
+              {curGw.directPaymentLink && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+                  <a
+                    href={curGw.directPaymentLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: '0.76rem', color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <span>Open Direct Payment Link ↗</span>
+                  </a>
+                </div>
+              )}
+
+              {curGw.qrImageUrl && (
+                <div style={{ marginTop: 8, textAlign: 'center' }}>
+                  <img
+                    src={curGw.qrImageUrl}
+                    alt={`${curGw.name} QR Code`}
+                    style={{ width: 130, height: 130, objectFit: 'contain', borderRadius: 8, background: '#fff', padding: 4 }}
+                  />
+                  <div style={{ marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="msg-act-btn"
+                      style={{ fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      onClick={() => {
+                        const a = document.createElement('a');
+                        a.href = curGw.qrImageUrl!;
+                        a.download = `${curGw.name.replace(/\s+/g, '_')}_QR.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                      }}
+                    >
+                      <Download size={11} />
+                      <span>Download QR Code</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Receipt Screenshot Upload for Manual Gateways */}
+          {isManual && (
+            <div className="field-group" style={{ marginBottom: 12 }}>
+              <label className="field-label">Payment Receipt Screenshot *</label>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: receiptUrl ? '1px solid #22c55e' : '1px dashed var(--border-subtle)',
+                  background: 'var(--bg-surface-soft)',
+                  cursor: 'pointer',
+                  fontSize: '0.78rem',
+                  color: receiptUrl ? '#4ade80' : 'var(--text-muted)',
+                }}
+              >
+                <ImagePlus size={15} />
+                <span>{receiptUrl ? '✓ Receipt Attached (Tap to change)' : 'Tap to upload payment screenshot'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => readImageFile(e.target.files?.[0], setReceiptUrl)}
+                  disabled={submitted}
+                />
+              </label>
+
+              {receiptUrl && (
+                <div style={{ marginTop: 8, textAlign: 'center' }}>
+                  <img
+                    src={receiptUrl}
+                    alt="Receipt preview"
+                    style={{ maxHeight: 110, maxWidth: '100%', borderRadius: 8, border: '1px solid var(--border-subtle)' }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {formErr && (
+            <div style={{ color: '#ef4444', fontSize: '0.76rem', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <AlertTriangle size={12} />
+              <span>{formErr}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
+            disabled={submitted}
+            onClick={() => {
+              if (isManual && !receiptUrl) {
+                setFormErr('Please upload your payment screenshot/receipt so staff can verify & load.');
+                return;
+              }
+              setSubmitted(true);
+              onSubmitDeposit({
+                game,
+                amount,
+                method: curGw.id,
+                handle: curGw.handle,
+                receiptScreenshotUrl: receiptUrl || undefined,
+              });
+            }}
+          >
+            {submitted ? 'Submitted to Cashier...' : isManual ? `Confirm & Submit $${amount} Deposit` : `Launch ${curGw.name} Checkout ($${amount})`}
+          </button>
+        </div>
+      );
+    }
+
+    // Default Gateways Grid with 1-click Pay for each Gateway
     return (
       <div className="inline-card">
         <div className="inline-card-header">
           <div className="inline-card-title">
             <Landmark size={18} color="#2563eb" />
-            <span>CashTap Automated Gateways</span>
+            <span>24/7 Verified Payment Gateways</span>
           </div>
-          <span className="status-pill verified">Live API</span>
+          <span className="status-pill verified">0% Fee</span>
         </div>
 
-        <div style={{ display: 'grid', gap: 7 }}>
-          {gateways.map((gw) => (
-            <div
-              key={gw.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '7px 10px',
-                borderRadius: 9,
-                background: 'var(--bg-surface-soft)',
-                border: '1px solid var(--border-subtle)',
-                fontSize: '0.8rem',
-              }}
-            >
-              <div>
-                <strong>{gw.name}</strong>
-                <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  Min ${gw.minAmount} • {gw.handle}
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+          Select any payment method below to deposit instantly with 100% Welcome / 20% Reload bonus:
+        </p>
+
+        <div style={{ display: 'grid', gap: 9 }}>
+          {gateways.map((gw) => {
+            const isGwManual = !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(gw.id);
+            return (
+              <div
+                key={gw.id}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  padding: '10px 12px',
+                  borderRadius: 11,
+                  background: 'var(--bg-surface-soft)',
+                  border: '1px solid var(--border-subtle)',
+                  transition: 'border-color 0.2s',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <strong style={{ fontSize: '0.88rem' }}>{gw.name}</strong>
+                      <span className="status-pill verified" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
+                        {gw.badge || (isGwManual ? 'Manual' : 'Instant API')}
+                      </span>
+                    </div>
+                    <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      Min ${gw.minAmount || 5} • Max ${gw.maxAmount || 2500} • {gw.eta || 'Instant'}
+                    </div>
+                  </div>
+
+                  {gw.handle && (
+                    <button
+                      type="button"
+                      className="msg-act-btn"
+                      onClick={() => copyField(`gw-tag-${gw.id}`, gw.handle)}
+                      title="Copy handle"
+                    >
+                      {copiedKey === `gw-tag-${gw.id}` ? <CheckCircle2 size={12} color="#22c55e" /> : <Copy size={12} />}
+                    </button>
+                  )}
+                </div>
+
+                {gw.handle && (
+                  <div style={{ fontSize: '0.74rem', background: 'var(--bg-surface)', padding: '5px 8px', borderRadius: 6, display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Tag / Handle:</span>
+                    <strong className="mono" style={{ color: '#ffd166' }}>{gw.handle}</strong>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ flex: 1, padding: '7px 10px', fontSize: '0.78rem' }}
+                    onClick={() => {
+                      setActivePayMethod(gw);
+                      setMethodId(gw.id);
+                    }}
+                  >
+                    ⚡ Pay with {gw.name}
+                  </button>
+
+                  {gw.directPaymentLink && (
+                    <a
+                      href={gw.directPaymentLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-secondary"
+                      style={{ padding: '7px 10px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                    >
+                      <ExternalLink size={12} />
+                      <span>Link</span>
+                    </a>
+                  )}
                 </div>
               </div>
-              <span className="status-pill verified">{gw.badge}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
