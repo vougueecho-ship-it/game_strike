@@ -74,6 +74,9 @@ async function callJuwaEndpoint(endpointPath, params = {}, apiConfig = {}) {
   const { baseUrl, agentId, secretKey } = resolveJuwaConfig(apiConfig);
   const auth = buildJuwaAuth(agentId, secretKey);
 
+  const endpoint = endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`;
+  const queryUrl = `${baseUrl}${endpoint}?agent_id=${encodeURIComponent(auth.agent_id)}&timestamp=${encodeURIComponent(auth.timestamp)}&token=${encodeURIComponent(auth.token)}`;
+
   const form = new FormData();
   form.append('agent_id', auth.agent_id);
   form.append('timestamp', auth.timestamp);
@@ -85,7 +88,7 @@ async function callJuwaEndpoint(endpointPath, params = {}, apiConfig = {}) {
     }
   }
 
-  const res = await fetch(`${baseUrl}${endpointPath}`, {
+  const res = await fetch(queryUrl, {
     method: 'POST',
     body: form,
   });

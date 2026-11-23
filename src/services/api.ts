@@ -4,7 +4,13 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 export const API_BASE =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL ||
-  'http://localhost:4000';
+  (typeof window !== 'undefined' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1'
+    ? window.location.origin
+    : (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()
+      ? 'https://gamestrike.io'
+      : 'http://localhost:4000'));
 
 export async function apiFetch<T = unknown>(
   path: string,
