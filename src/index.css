@@ -2788,6 +2788,21 @@ a {
     padding: 7px 4px calc(7px + env(safe-area-inset-bottom, 0px));
     z-index: 30;
   }
+  .chat-main {
+    padding-bottom: var(--keyboard-overlap, 0px);
+  }
+  .chat-composer-wrap:focus-within {
+    padding-bottom: 8px;
+  }
+  .chat-composer-wrap:focus-within ~ .chat-mobile-bottom-nav,
+  html.keyboard-open .chat-mobile-bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: translateY(100%);
+    pointer-events: none;
+  }
   .chat-bottom-item {
     display: flex;
     flex-direction: column;

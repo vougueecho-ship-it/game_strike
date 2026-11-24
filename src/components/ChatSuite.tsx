@@ -123,6 +123,27 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   onSignOut,
 }) => {
   const [inputText, setInputText] = useState('');
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const syncKeyboard = () => {
+      const overlap = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      const open = overlap > 60;
+      root.style.setProperty('--keyboard-overlap', open ? `${Math.round(overlap)}px` : '0px');
+      root.classList.toggle('keyboard-open', open);
+    };
+    viewport.addEventListener('resize', syncKeyboard);
+    viewport.addEventListener('scroll', syncKeyboard);
+    syncKeyboard();
+    return () => {
+      viewport.removeEventListener('resize', syncKeyboard);
+      viewport.removeEventListener('scroll', syncKeyboard);
+      root.style.removeProperty('--keyboard-overlap');
+      root.classList.remove('keyboard-open');
+    };
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetails, setShowDetails] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
