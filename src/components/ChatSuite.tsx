@@ -56,7 +56,6 @@ interface ChatSuiteProps {
   tickets: TicketItem[];
   activeThread: ThreadId;
   isTyping: boolean;
-  humanTakeover?: boolean;
   onPlayerTyping?: (typing: boolean) => void;
   darkMode: boolean;
   onSelectThread: (id: ThreadId) => void;
@@ -103,7 +102,6 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   tickets,
   activeThread,
   isTyping,
-  humanTakeover,
   onPlayerTyping,
   darkMode,
   onSelectThread,
@@ -433,11 +431,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 <span>
                   {isTyping
                     ? 'Live Agent is typing...'
-                    : `Wallet $${Number(user.walletBalance || 0).toFixed(2)} • ${
-                        humanTakeover
-                          ? 'Live Human Agent Connected'
-                          : 'Online'
-                      }`}
+                    : `Wallet $${Number(user.walletBalance || 0).toFixed(2)} • Online`}
                 </span>
               </div>
             </div>
@@ -798,11 +792,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
 
             <input
               type="text"
-              placeholder={
-                humanTakeover
-                  ? 'Message live agent directly...'
-                  : 'Ask anything — Deposit, Withdraw, Game ID, Cash App, Bonus...'
-              }
+              placeholder="Message support..."
               value={inputText}
               onChange={(e) => {
                 setInputText(e.target.value);

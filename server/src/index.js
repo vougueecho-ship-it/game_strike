@@ -12,6 +12,7 @@ import {
   initPushService,
   sendPushToUser,
 } from './services/pushService.js';
+import { buildSupportReply } from './services/conciergeService.js';
 import {
   createGameAccount,
   forceGamePlayerOffline,
@@ -27,7 +28,7 @@ import {
   verifyCashTapSignature,
 } from './services/cashtapService.js';
 import { createWithdrawalPayout } from './services/paymentGatewayService.js';
-import { sendFreeplayTaskEmail, sendOtpEmail } from './services/emailService.js';
+import { sendFreeplayTaskEmail, sendOtpEmail, sendSupportReplyEmail } from './services/emailService.js';
 
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'gamestrike_secret_2026';
@@ -920,6 +921,49 @@ app.get('/api/gateways', async (_req, res) => {
 // =========================================================
 // PLAYER CHAT & AUTO CASHTAP TICKETS
 // =========================================================
+async function replyAsSupport(user, saved) {
+  if (!user) return;
+  io.to(`user:${user._id}`).emit('chat:typing', { sender: 'agent', isTyping: true });
+  try {
+    const [settings, games, gateways, tickets, history] = await Promise.all([
+      db.getSettings(),
+      db.listGames(),
+      db.listGateways(),
+      db.listTickets(user._id),
+      db.listMessagesByUser(user._id),
+    ]);
+    const reply = await buildSupportReply({
+      user,
+      message: saved,
+      settings,
+      games,
+      gateways,
+      tickets,
+      history,
+    });
+    const agentMsg = await db.createMessage({
+      userId: String(user._id),
+      threadId: saved.threadId || 'concierge',
+      sender: 'agent',
+      agentName: reply.agentName,
+      text: reply.text,
+      card: reply.card,
+      quickReplies: reply.quickReplies,
+      read: true,
+    });
+    io.to(`user:${user._id}`).emit('chat:message', agentMsg);
+    io.to('admins').emit('chat:message', agentMsg);
+    sendPushToUser(user, {
+      title: 'GameStrike Support',
+      body: reply.text,
+      url: '/#/chat',
+      tag: `support-${user._id}`,
+    }).catch(() => {});
+  } finally {
+    io.to(`user:${user._id}`).emit('chat:typing', { sender: 'agent', isTyping: false });
+  }
+}
+
 app.get('/api/chat/history', requireAuth, async (req, res) => {
   const messages = await db.listMessagesByUser(req.auth.id);
   const tickets = await db.listTickets(req.auth.id);
@@ -954,6 +998,10 @@ app.post('/api/chat/message', requireAuth, async (req, res) => {
     }
 
     res.status(201).json(saved);
+
+    if (text || attachmentUrl) {
+      replyAsSupport(user, saved).catch((err) => console.warn('[Concierge]', err.message));
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1701,10 +1749,6 @@ app.post('/api/admin/chat/:userId/reply', requireAdmin, async (req, res) => {
       read: false,
     });
 
-    // Auto-enable Live Human Mode when Admin replies manually so bot doesn't interrupt
-    await db.updateUser(targetUser._id, { humanTakeover: true });
-    io.to(`user:${targetUser._id}`).emit('chat:mode', { humanTakeover: true });
-
     io.to(`user:${targetUser._id}`).emit('chat:message', saved);
     io.to('admins').emit('chat:message', saved);
 
@@ -1721,13 +1765,73 @@ app.post('/api/admin/chat/:userId/reply', requireAdmin, async (req, res) => {
   }
 });
 
-// Admin can toggle Auto-Bot vs Live Human Mode for any player
-app.patch('/api/admin/chat/:userId/mode', requireAdmin, async (req, res) => {
+app.delete('/api/admin/chat/:userId', requireAdmin, async (req, res) => {
   try {
-    const humanTakeover = Boolean(req.body.humanTakeover);
-    await db.updateUser(req.params.userId, { humanTakeover });
-    io.to(`user:${req.params.userId}`).emit('chat:mode', { humanTakeover });
-    res.json({ ok: true, humanTakeover });
+    const targetUser = await db.findUserById(req.params.userId);
+    if (!targetUser) return res.status(404).json({ error: 'Player not found' });
+    const deleted = await db.deleteMessagesByUser(targetUser._id);
+    const payload = { userId: String(targetUser._id) };
+    io.to(`user:${targetUser._id}`).emit('chat:cleared', payload);
+    io.to('admins').emit('chat:cleared', payload);
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/tickets/:ticketId/reply', requireAdmin, async (req, res) => {
+  try {
+    const reply = String(req.body.reply || '').trim();
+    if (!reply) return res.status(400).json({ error: 'Write a reply first.' });
+    const ticket = await db.findTicketById(req.params.ticketId);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const player = await db.findUserById(ticket.userId);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    const updated = await db.updateTicketStatus(ticket.ticketId, ticket.status, reply);
+    const message = await db.createMessage({
+      userId: String(player._id),
+      threadId: 'concierge',
+      sender: 'agent',
+      agentName: 'GameStrike Support',
+      text: `Reply on ${ticket.ticketId}: ${reply}`,
+      read: false,
+    });
+
+    io.to(`user:${player._id}`).emit('chat:message', message);
+    io.to(`user:${player._id}`).emit('ticket:updated', updated);
+    io.to('admins').emit('chat:message', message);
+    io.to('admins').emit('ticket:updated', updated);
+
+    const push = await sendPushToUser(player, {
+      title: `GameStrike reply · ${ticket.ticketId}`,
+      body: reply.slice(0, 180),
+      url: '/#/chat',
+      tag: `issue-reply-${ticket.ticketId}`,
+    });
+
+    let emailSent = false;
+    if (String(player.contact || '').includes('@')) {
+      const mailed = await sendSupportReplyEmail({
+        to: player.contact,
+        name: player.name,
+        ticketId: ticket.ticketId,
+        title: ticket.title,
+        reply,
+      }).catch((err) => {
+        console.warn(`[Support email] ${ticket.ticketId}: ${err.message}`);
+        return { sentViaSmtp: false };
+      });
+      emailSent = Boolean(mailed?.sentViaSmtp);
+    }
+
+    res.json({
+      ticket: updated,
+      message,
+      emailSent,
+      notified: (push?.webPushSent || 0) + (push?.fcmSent || 0) > 0,
+      appNotified: (push?.fcmSent || 0) > 0,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -128,7 +128,6 @@ export const App: React.FC = () => {
   });
   const [activeThread, setActiveThread] = useState<ThreadId>('concierge');
   const [isTyping, setIsTyping] = useState(false);
-  const [humanTakeover, setHumanTakeover] = useState(false);
   const [games, setGames] = useState<GameItem[]>([]);
   const [gateways, setGateways] = useState<PaymentGateway[]>(DEFAULT_GATEWAYS);
   const [settings, setSettings] = useState<PlatformSettings>({
@@ -239,8 +238,8 @@ export const App: React.FC = () => {
       }
     });
 
-    socket.on('chat:mode', (payload: { humanTakeover: boolean }) => {
-      setHumanTakeover(Boolean(payload?.humanTakeover));
+    socket.on('chat:cleared', () => {
+      setMessages([]);
     });
 
     socket.on('wallet:updated', (payload: { walletBalance?: number }) => {
@@ -533,105 +532,6 @@ export const App: React.FC = () => {
       setMessages((prev) => [...prev, userMsg]);
     }
 
-    if (attachment) {
-      if (!humanTakeover) {
-        pushAgentReply(activeThread, {
-          text: 'Receipt received! ✅ Our cashier team is verifying your screenshot now.',
-          quickReplies: [
-            { label: '🎮 Get Game ID', action: 'game-id' },
-            { label: '🎁 Claim Bonus', action: 'bonuses' },
-          ],
-        });
-      }
-      return;
-    }
-
-    // When Admin has taken over (Live Human Mode), keep auto-bot 100% silent for real 1-on-1 chat!
-    if (humanTakeover) {
-      return;
-    }
-
-    const q = text.toLowerCase();
-    if (
-      q.includes('deposit') ||
-      q.includes('load') ||
-      q.includes('add') ||
-      q.includes('topup') ||
-      q.includes('paise dal') ||
-      q.includes('recharge')
-    ) {
-      handleTriggerAction('deposit');
-    } else if (
-      q.includes('withdraw') ||
-      q.includes('cashout') ||
-      q.includes('redeem') ||
-      q.includes('payout') ||
-      q.includes('nikal')
-    ) {
-      handleTriggerAction('withdraw');
-    } else if (
-      q.includes('game id') ||
-      q.includes('new id') ||
-      q.includes('account') ||
-      q.includes('juwa') ||
-      q.includes('fire kirin') ||
-      q.includes('orion') ||
-      q.includes('vault') ||
-      q.includes('milky') ||
-      q.includes('id chahiye') ||
-      q.includes('id bna')
-    ) {
-      handleTriggerAction('game-id');
-    } else if (
-      q.includes('payment') ||
-      q.includes('cashapp') ||
-      q.includes('cash app') ||
-      q.includes('chime') ||
-      q.includes('paypal') ||
-      q.includes('zelle') ||
-      q.includes('venmo') ||
-      q.includes('crypto') ||
-      q.includes('btc') ||
-      q.includes('usdt') ||
-      q.includes('tag')
-    ) {
-      handleTriggerAction('payments');
-    } else if (
-      q.includes('bonus') ||
-      q.includes('freeplay') ||
-      q.includes('promo') ||
-      q.includes('offer')
-    ) {
-      handleTriggerAction('bonuses');
-    } else if (
-      q.includes('issue') ||
-      q.includes('problem') ||
-      q.includes('not open') ||
-      q.includes('open nai') ||
-      q.includes('chal nai') ||
-      q.includes('not received') ||
-      q.includes('receive nai') ||
-      q.includes('nai ayi') ||
-      q.includes('stuck') ||
-      q.includes('error') ||
-      q.includes('agent') ||
-      q.includes('help') ||
-      q.includes('support')
-    ) {
-      handleTriggerAction('issue');
-    } else if (q.includes('password') || q.includes('reset') || q.includes('forgot')) {
-      handleTriggerAction('password');
-    } else if (!token) {
-      pushAgentReply(activeThread, {
-        text: `Got it, ${user?.name || 'Player'}! A GameStrike.io support specialist has received your message. You can also use any quick action below:`,
-        quickReplies: [
-          { label: '💳 Deposit / Load', action: 'deposit' },
-          { label: '💸 Withdraw / Cashout', action: 'withdraw' },
-          { label: '🎮 New Game ID', action: 'game-id' },
-          { label: '🏦 Payment Tags', action: 'payments' },
-        ],
-      });
-    }
   };
 
   const handleSubmitDeposit = async (data: {
@@ -1002,7 +902,6 @@ export const App: React.FC = () => {
       tickets={tickets}
       activeThread={activeThread}
       isTyping={isTyping}
-      humanTakeover={humanTakeover}
       onPlayerTyping={(typing) => {
         socketRef.current?.emit('chat:typing', { isTyping: typing });
       }}

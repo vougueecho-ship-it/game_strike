@@ -66,8 +66,8 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
   const [editingText, setEditingText] = useState('');
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [typingPlayerId, setTypingPlayerId] = useState<string | null>(null);
-  const [humanModeMap, setHumanModeMap] = useState<Record<string, boolean>>({});
   const [credDrafts, setCredDrafts] = useState<Record<string, { user: string; pass: string }>>({});
+  const [issueReplyDraft, setIssueReplyDraft] = useState<Record<string, string>>({});
 
   const adminSocketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
   const adminFileRef = useRef<HTMLInputElement | null>(null);
@@ -213,6 +213,10 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
         prev.map((m) => (String(m._id) === String(updated._id) ? updated : m))
       );
     });
+    socket.on('chat:cleared', (payload: { userId?: string }) => {
+      if (String(payload?.userId) !== String(selectedPlayerId)) return;
+      setPlayerMessages([]);
+    });
 
     return () => {
       socket.disconnect();
@@ -264,7 +268,6 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
       targetUserId: selectedPlayerId,
       isTyping: false,
     });
-    setHumanModeMap((prev) => ({ ...prev, [selectedPlayerId]: true }));
     await apiFetch(
       `/api/admin/chat/${selectedPlayerId}/reply`,
       {
@@ -279,20 +282,12 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     );
   };
 
-  const handleToggleHumanMode = async (userId: string) => {
+  const handleDeleteConversation = async (userId: string, name: string) => {
     if (!token) return;
-    const next = !humanModeMap[userId];
-    setHumanModeMap((prev) => ({ ...prev, [userId]: next }));
-    await apiFetch(
-      `/api/admin/chat/${userId}/mode`,
-      { method: 'PATCH', body: JSON.stringify({ humanTakeover: next }) },
-      token
-    );
-    setSaveBanner(
-      next
-        ? '🟢 Live Human Mode ON — Auto-bot paused for this player.'
-        : '🤖 Auto-Bot Mode ON — Automated concierge resumed for this player.'
-    );
+    if (!window.confirm(`Delete the whole chat with ${name}? This removes it for you and for the player.`)) return;
+    await apiFetch(`/api/admin/chat/${userId}`, { method: 'DELETE' }, token);
+    if (String(selectedPlayerId) === String(userId)) setPlayerMessages([]);
+    setSaveBanner(`Chat with ${name} deleted.`);
   };
 
   const handleAdminEditMessage = async (msgId: string, newText: string) => {
@@ -333,6 +328,25 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     );
     setSaveBanner(`Ticket ${ticketId} marked ${status} + Push Notification sent to player.`);
     setTimeout(() => setSaveBanner(''), 3500);
+  };
+
+  const handleSendIssueReply = async (ticketId: string) => {
+    if (!token) return;
+    const reply = (issueReplyDraft[ticketId] || '').trim();
+    if (!reply) return;
+    const res = await apiFetch<{ emailSent: boolean; appNotified: boolean; ticket: any }>(
+      `/api/admin/tickets/${ticketId}/reply`,
+      { method: 'POST', body: JSON.stringify({ reply }) },
+      token
+    );
+    setTickets((prev) => prev.map((t) => (t.ticketId === ticketId ? { ...t, ...res.ticket } : t)));
+    setIssueReplyDraft((prev) => ({ ...prev, [ticketId]: '' }));
+    const emailNote = res.emailSent ? 'Email sent.' : 'Email was not sent. Check SMTP in server .env.';
+    const appNote = res.appNotified
+      ? 'App notification sent.'
+      : 'Notification sent. The phone alert arrives after this player opens the installed app once while signed in.';
+    setSaveBanner(`Reply delivered in chat. ${emailNote} ${appNote}`);
+    setTimeout(() => setSaveBanner(''), 6000);
   };
 
   const handleSaveGameApi = async (e: React.FormEvent) => {
@@ -916,14 +930,11 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       style={{
                         padding: '6px 11px',
                         fontSize: '0.74rem',
-                        borderColor: humanModeMap[selectedPlayer._id]
-                          ? 'rgba(34,197,94,0.5)'
-                          : 'var(--border-subtle)',
-                        color: humanModeMap[selectedPlayer._id] ? '#4ade80' : 'var(--text-secondary)',
+                        color: '#dc2626',
                       }}
-                      onClick={() => handleToggleHumanMode(selectedPlayer._id)}
+                      onClick={() => handleDeleteConversation(selectedPlayer._id, selectedPlayer.name)}
                     >
-                      {humanModeMap[selectedPlayer._id] ? '🟢 Live Human Mode' : '🤖 Auto-Bot Active'}
+                      <Trash2 size={13} /> Delete chat
                     </button>
                   </div>
                 </div>
@@ -1086,8 +1097,8 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
           <div className="games-container" style={{ maxWidth: 1200, paddingTop: 20 }}>
           <div className="section-head">
             <div>
-              <h2>Deposits, Cashouts & Game ID Queue</h2>
-              <p>Approving a ticket updates the player chat live and triggers a Lock-Screen Push Notification.</p>
+              <h2>Deposits, Cashouts, Game IDs & Issue Reports</h2>
+              <p>Issue replies go to the player in chat, by email, and as a notification. If the app is installed, the same alert reaches the phone.</p>
             </div>
           </div>
 
@@ -1111,6 +1122,34 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     </div>
                     <div style={{ fontWeight: 700, fontSize: '0.98rem' }}>{t.title}</div>
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t.subtitle}</div>
+                    {t.type === 'issue' && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleSendIssueReply(t.ticketId);
+                        }}
+                        style={{ display: 'grid', gap: 8, marginTop: 10, maxWidth: 560 }}
+                      >
+                        <span className="gateway-chip">Issue report</span>
+                        {t.adminNote && (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            Last reply: {t.adminNote}
+                          </div>
+                        )}
+                        <textarea
+                          className="field-input"
+                          rows={3}
+                          placeholder="Write the reply. The player gets it in chat, by email, and as a notification."
+                          value={issueReplyDraft[t.ticketId] || ''}
+                          onChange={(e) =>
+                            setIssueReplyDraft((prev) => ({ ...prev, [t.ticketId]: e.target.value }))
+                          }
+                        />
+                        <button type="submit" className="btn-primary" style={{ padding: '8px 14px', fontSize: '0.82rem', justifySelf: 'start' }}>
+                          Send reply
+                        </button>
+                      </form>
+                    )}
 
                     {/* Show Game Name, Game Username & Bonus Breakdown clearly for Admin */}
                     {(t.game || t.gameUser || t.totalCredit) && (

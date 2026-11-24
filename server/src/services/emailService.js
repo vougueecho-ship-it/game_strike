@@ -217,3 +217,29 @@ Send that inbox screenshot in GameStrike chat to claim freeplay once.`;
   });
   return { sentViaSmtp: true };
 }
+
+export async function sendSupportReplyEmail({ to, name, ticketId, title, reply }) {
+  const mail = getTransporter();
+  const subject = `GameStrike.io — reply on ${ticketId}`;
+  const safeName = String(name || 'Player').replace(/[<>]/g, '');
+  const safeTitle = String(title || 'your report').replace(/[<>]/g, '');
+  const safeReply = String(reply || '').replace(/[<>]/g, '');
+  const text = `Hi ${safeName},
+
+We replied to your GameStrike.io report (${ticketId}): ${safeTitle}
+
+${safeReply}
+
+Open the GameStrike app or site chat to continue.`;
+  if (!mail) {
+    console.log(`[Support email not sent — SMTP is not configured] To: ${to} | Ticket: ${ticketId}`);
+    return { sentViaSmtp: false };
+  }
+  await mail.sendMail({
+    from: process.env.SMTP_FROM || `GameStrike.io <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    text,
+  });
+  return { sentViaSmtp: true };
+}

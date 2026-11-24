@@ -1013,17 +1013,15 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                     </div>
 
                     {activeGateway.directPaymentLink && (
-                      <div style={{ marginTop: 6, fontSize: '0.76rem' }}>
-                        <a
-                          href={activeGateway.directPaymentLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                          <ExternalLink size={12} />
-                          <span>Open Direct Payment Link ↗</span>
-                        </a>
-                      </div>
+                      <a
+                        href={activeGateway.directPaymentLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="pay-link-btn"
+                      >
+                        <ExternalLink size={15} />
+                        <span>Open Direct Payment Link</span>
+                      </a>
                     )}
 
                     {activeGateway.qrImageUrl && (

@@ -578,6 +578,11 @@ export const db = {
     saveLocal();
     return localState.messages[idx];
   },
+  async deleteMessagesByUser(userId) {
+    if (!useMongo) throw new Error('MongoDB is required.');
+    const result = await Message.deleteMany({ userId: String(userId) });
+    return result.deletedCount || 0;
+  },
 
   // TICKETS
   async listTickets(userId) {

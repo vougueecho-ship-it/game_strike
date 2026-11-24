@@ -317,16 +317,15 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
 
               {/* Direct payment link if available */}
               {selectedGateway.directPaymentLink && (
-                <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
-                  <a
-                    href={selectedGateway.directPaymentLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.76rem', color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <span>Open Direct Payment Link ↗</span>
-                  </a>
-                </div>
+                <a
+                  href={selectedGateway.directPaymentLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pay-link-btn"
+                >
+                  <ExternalLink size={15} />
+                  <span>Open Direct Payment Link</span>
+                </a>
               )}
 
               {/* QR Code preview & 1-click Download */}
@@ -841,16 +840,15 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               </div>
 
               {curGw.directPaymentLink && (
-                <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
-                  <a
-                    href={curGw.directPaymentLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.76rem', color: '#38bdf8', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <span>Open Direct Payment Link ↗</span>
-                  </a>
-                </div>
+                <a
+                  href={curGw.directPaymentLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pay-link-btn"
+                >
+                  <ExternalLink size={15} />
+                  <span>Open Direct Payment Link</span>
+                </a>
               )}
 
               {curGw.qrImageUrl && (
