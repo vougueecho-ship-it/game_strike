@@ -7,7 +7,7 @@ export const GAMES_CATALOG: GameItem[] = [];
 export const PAYMENT_GATEWAYS: PaymentGateway[] = [
   {
     id: 'cashtap',
-    name: 'CashTap Checkout (All Methods)',
+    name: 'All Methods',
     handle: 'pay.cashtap.cash',
     badge: 'Auto Instant',
     eta: 'Instant Auto',
@@ -20,7 +20,7 @@ export const PAYMENT_GATEWAYS: PaymentGateway[] = [
   },
   {
     id: 'cashapp',
-    name: 'CashApp Pay (via CashTap)',
+    name: 'Cash App',
     handle: 'Instant CashApp Checkout',
     badge: 'Instant',
     eta: 'Instant Auto',
@@ -33,7 +33,7 @@ export const PAYMENT_GATEWAYS: PaymentGateway[] = [
   },
   {
     id: 'coinbase',
-    name: 'Card, Bank or Apple Pay (CashTap)',
+    name: 'Card, Bank or Apple Pay',
     handle: 'Debit / Bank / Apple Pay',
     badge: 'Card & Apple Pay',
     eta: 'Instant Auto',
@@ -46,7 +46,7 @@ export const PAYMENT_GATEWAYS: PaymentGateway[] = [
   },
   {
     id: 'wallet',
-    name: 'Wallet Transfer USDC (CashTap)',
+    name: 'USDC',
     handle: 'USDC on Base — Any Wallet',
     badge: 'High Limit',
     eta: 'Instant Auto',
@@ -58,6 +58,33 @@ export const PAYMENT_GATEWAYS: PaymentGateway[] = [
     color: '#06B6D4',
   },
 ];
+
+const KNOWN_METHOD_NAMES: Record<string, string> = {
+  cashtap: 'All Methods',
+  cashapp: 'Cash App',
+  coinbase: 'Card, Bank or Apple Pay',
+  wallet: 'USDC',
+  chime: 'Chime',
+};
+
+export function paymentMethodName(gateway?: { id?: string; name?: string } | string | null): string {
+  if (!gateway) return 'Payment';
+  if (typeof gateway === 'string') return stripProviderLabel(gateway);
+  const known = KNOWN_METHOD_NAMES[(gateway.id || '').toLowerCase()];
+  if (known) return known;
+  return stripProviderLabel(gateway.name || '');
+}
+
+function stripProviderLabel(raw: string): string {
+  const name = raw
+    .replace(/\s*[([{][^)\]}]*(?:cash\s*tap|api|manual\s*verify)[^)\]}]*[)\]}]/gi, '')
+    .replace(/\b(via\s+)?cash\s*tap(\s+checkout|\s+api)?\b/gi, '')
+    .replace(/\b(g\s*)?api\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,–—-]+|[\s,–—-]+$/g, '')
+    .trim();
+  return name || raw.trim();
+}
 
 export const PROMO_OFFERS = [
   {

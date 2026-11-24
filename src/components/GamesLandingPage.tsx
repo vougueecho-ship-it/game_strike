@@ -25,7 +25,7 @@ import {
 import { BrandLogo } from './BrandLogo';
 import { AppDownloadModal } from './AppDownloadModal';
 import { AuthSuite } from './AuthSuite';
-import { PROMO_OFFERS } from '../data/catalog';
+import { PROMO_OFFERS, paymentMethodName } from '../data/catalog';
 import { GameItem, PaymentGateway, UserProfile } from '../types';
 
 interface GamesLandingPageProps {
@@ -760,7 +760,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
         <section className="nx-pay-strip">
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontWeight: 700, fontSize: '0.86rem' }}>
             <ShieldCheck size={18} color="#22c55e" />
-            <span>Automated CashTap Checkout Rails</span>
+            <span>Payment Methods</span>
           </div>
           <div className="nx-pay-tags">
             {gateways.map((gw) => (
@@ -773,7 +773,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                   openCashier('deposit');
                 }}
               >
-                {gw.name.replace(' (via CashTap)', '').replace(' (CashTap)', '')}
+                {paymentMethodName(gw)}
               </button>
             ))}
           </div>
@@ -951,7 +951,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                       )
                       .map((g) => (
                         <option key={g.id} value={g.id}>
-                          {g.name} ({g.badge || 'Verified'})
+                          {paymentMethodName(g)}
                         </option>
                       ))}
                   </select>
@@ -961,7 +961,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                 {walletTab === 'deposit' && activeGateway && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(activeGateway.id) && (
                   <div style={{ background: 'var(--nx-bg-surface-soft)', border: '1px solid var(--border-subtle)', borderRadius: 10, padding: 12, marginBottom: 14 }}>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Send ${amount} to official {activeGateway.name} Tag:
+                      Send ${amount} to official {paymentMethodName(activeGateway)} Tag:
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: 6 }}>
                       <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
@@ -1089,9 +1089,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                     {submitting
                       ? 'Processing...'
                       : walletTab === 'deposit'
-                      ? (activeGateway && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(activeGateway.id)
-                          ? `Confirm & Submit $${amount} via ${activeGateway.name}`
-                          : `Pay $${amount} via CashTap ⚡`)
+                      ? `Pay $${amount} with ${paymentMethodName(activeGateway)}`
                       : `Request $${Math.max(10, amount)} Cashout`}
                   </span>
                 </button>

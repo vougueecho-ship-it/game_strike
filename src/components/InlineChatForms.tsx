@@ -21,6 +21,7 @@ import {
   TicketItem,
   UserProfile,
 } from '../types';
+import { paymentMethodName } from '../data/catalog';
 
 interface InlineChatCardProps {
   message: ChatMessage;
@@ -125,7 +126,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
         <div className="inline-card-header">
           <div className="inline-card-title">
             <ArrowDownCircle size={18} color="#ff1f4b" />
-            <span>{isManualGw ? `Manual Deposit (${selectedGateway.name})` : 'Auto Deposit (CashTap)'}</span>
+            <span>Deposit — {paymentMethodName(selectedGateway)}</span>
           </div>
           <span className="status-pill verified">
             {isFirstDeposit ? `+${bonusPct}% Welcome` : `+${bonusPct}% Reload`}
@@ -210,7 +211,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               .filter((g) => g.supportsDeposit)
               .map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.name}
+                  {paymentMethodName(g)}
                 </option>
               ))}
           </select>
@@ -220,7 +221,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           <>
             <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                Send ${amount} to official {selectedGateway.name} Tag:
+                Send ${amount} to official {paymentMethodName(selectedGateway)} Tag:
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
                 <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
@@ -329,7 +330,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             ? 'Deposit Submitted ✓'
             : isManualGw
             ? `Submit $${amount} Receipt (Load $${totalCredit})`
-            : `Pay $${amount} via CashTap (Load $${totalCredit})`}
+            : `Pay $${amount} with ${paymentMethodName(selectedGateway)} (Load $${totalCredit})`}
         </button>
       </div>
     );
@@ -427,7 +428,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             >
               {withdrawGateways.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.name}
+                  {paymentMethodName(g)}
                 </option>
               ))}
             </select>
@@ -653,13 +654,13 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               <span>← All Gateways</span>
             </button>
             <span className="status-pill verified">
-              {curGw.name} ({curGw.badge || 'Verified'})
+              {paymentMethodName(curGw)}
             </span>
           </div>
 
           <div style={{ margin: '8px 0 12px 0' }}>
             <div style={{ fontSize: '0.86rem', fontWeight: 700, color: '#fff' }}>
-              Deposit via {curGw.name}
+              Deposit via {paymentMethodName(curGw)}
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
               Min: ${curGw.minAmount || 5} • Max: ${curGw.maxAmount || 2500} • ETA: {curGw.eta || 'Instant'}
@@ -734,7 +735,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           {isManual && (
             <div className="ticket-mini" style={{ marginBottom: 10, padding: '9px 11px' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                Send ${amount} to official {curGw.name} Tag:
+                Send ${amount} to official {paymentMethodName(curGw)} Tag:
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
                 <strong className="mono" style={{ fontSize: '0.86rem', color: '#ffd166' }}>
@@ -862,7 +863,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               });
             }}
           >
-            {submitted ? 'Submitted to Cashier...' : isManual ? `Confirm & Submit $${amount} Deposit` : `Launch ${curGw.name} Checkout ($${amount})`}
+            {submitted ? 'Submitted to Cashier...' : `Pay $${amount} with ${paymentMethodName(curGw)}`}
           </button>
         </div>
       );
@@ -885,7 +886,6 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
 
         <div style={{ display: 'grid', gap: 9 }}>
           {gateways.map((gw) => {
-            const isGwManual = !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(gw.id);
             return (
               <div
                 key={gw.id}
@@ -903,10 +903,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <strong style={{ fontSize: '0.88rem' }}>{gw.name}</strong>
-                      <span className="status-pill verified" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
-                        {gw.badge || (isGwManual ? 'Manual' : 'Instant API')}
-                      </span>
+                      <strong style={{ fontSize: '0.88rem' }}>{paymentMethodName(gw)}</strong>
                     </div>
                     <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
                       Min ${gw.minAmount || 5} • Max ${gw.maxAmount || 2500} • {gw.eta || 'Instant'}
@@ -942,7 +939,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
                       setMethodId(gw.id);
                     }}
                   >
-                    ⚡ Pay with {gw.name}
+                    Pay with {paymentMethodName(gw)}
                   </button>
 
                   {gw.directPaymentLink && (

@@ -789,15 +789,37 @@ app.get('/api/games', async (_req, res) => {
   );
 });
 
+const PUBLIC_METHOD_NAMES = {
+  cashtap: 'All Methods',
+  cashapp: 'Cash App',
+  coinbase: 'Card, Bank or Apple Pay',
+  wallet: 'USDC',
+  chime: 'Chime',
+};
+
+function publicMethodName(gateway) {
+  const known = PUBLIC_METHOD_NAMES[String(gateway.slug || '').toLowerCase()];
+  if (known) return known;
+  const cleaned = String(gateway.name || '')
+    .replace(/\s*[([{][^)\]}]*(?:cash\s*tap|api|manual\s*verify)[^)\]}]*[)\]}]/gi, '')
+    .replace(/\b(via\s+)?cash\s*tap(\s+checkout|\s+api)?\b/gi, '')
+    .replace(/\b(g\s*)?api\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,–—-]+|[\s,–—-]+$/g, '')
+    .trim();
+  return cleaned || gateway.name;
+}
+
 app.get('/api/gateways', async (_req, res) => {
   const gateways = await db.listGateways();
   res.json(
     gateways
       .filter((g) => g.enabled !== false)
-      .map(({ apiConfig, ...rest }) => ({
+      .map(({ apiConfig, badge, ...rest }) => ({
         ...rest,
         id: rest.slug,
-        apiConnected: Boolean(apiConfig?.isConnected || process.env.CASHTAP_SECRET_KEY),
+        name: publicMethodName(rest),
+        badge: '',
       }))
   );
 });

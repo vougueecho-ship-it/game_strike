@@ -65,7 +65,7 @@ const SEED_GAMES = [
 const SEED_GATEWAYS = [
   {
     slug: 'cashtap',
-    name: 'CashTap Checkout (All Methods)',
+    name: 'All Methods',
     handle: 'pay.cashtap.cash',
     badge: 'Auto Instant',
     eta: 'Instant Auto',
@@ -86,7 +86,7 @@ const SEED_GATEWAYS = [
   },
   {
     slug: 'cashapp',
-    name: 'CashApp Pay (via CashTap)',
+    name: 'Cash App',
     handle: 'Instant CashApp Checkout',
     badge: 'Instant',
     eta: 'Instant Auto',
@@ -107,7 +107,7 @@ const SEED_GATEWAYS = [
   },
   {
     slug: 'coinbase',
-    name: 'Card, Bank or Apple Pay (CashTap)',
+    name: 'Card, Bank or Apple Pay',
     handle: 'Debit / Bank / Apple Pay',
     badge: 'Card & Apple Pay',
     eta: 'Instant Auto',
@@ -128,7 +128,7 @@ const SEED_GATEWAYS = [
   },
   {
     slug: 'wallet',
-    name: 'Wallet Transfer USDC (CashTap)',
+    name: 'USDC',
     handle: 'USDC on Base — Any Wallet',
     badge: 'High Limit',
     eta: 'Instant Auto',
@@ -149,7 +149,7 @@ const SEED_GATEWAYS = [
   },
   {
     slug: 'chime',
-    name: 'Chime (Manual Verify)',
+    name: 'Chime',
     handle: '$GameStrike-Chime',
     badge: 'Manual Verify',
     eta: '2–5 mins',

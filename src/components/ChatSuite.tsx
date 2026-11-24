@@ -36,7 +36,7 @@ import {
 import { BrandLogo } from './BrandLogo';
 import { InlineChatCard } from './InlineChatForms';
 import { AppDownloadModal } from './AppDownloadModal';
-import { SUPPORT_THREADS } from '../data/catalog';
+import { SUPPORT_THREADS, paymentMethodName } from '../data/catalog';
 import {
   ChatMessage,
   GameItem,
@@ -1020,11 +1020,11 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
           </div>
 
           <div className="details-card">
-            <div className="details-title">CashTap Payment Rails</div>
+            <div className="details-title">Payment Methods</div>
             <div className="gateway-chip-grid">
               {gateways.map((gw) => (
                 <span key={gw.id} className="gateway-chip">
-                  {gw.name}
+                  {paymentMethodName(gw)}
                 </span>
               ))}
             </div>
