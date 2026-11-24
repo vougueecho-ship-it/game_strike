@@ -2,15 +2,15 @@ import { io, Socket } from 'socket.io-client';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
-export const API_BASE =
-  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL ||
-  (typeof window !== 'undefined' &&
-  window.location.hostname !== 'localhost' &&
-  window.location.hostname !== '127.0.0.1'
-    ? window.location.origin
-    : (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()
-      ? 'https://gamestrike.io'
-      : 'http://localhost:4000'));
+function resolveApiBase(): string {
+  const fromEnv = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL;
+  if (fromEnv) return fromEnv;
+  if (Capacitor.isNativePlatform()) return 'https://gamestrike.io';
+  if (typeof window === 'undefined') return 'http://localhost:4000';
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:4000';
+  return window.location.origin;
+}
 
 export async function apiFetch<T = unknown>(
   path: string,
@@ -25,10 +25,15 @@ export async function apiFetch<T = unknown>(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${resolveApiBase()}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error('Could not reach GameStrike. Check your internet and try again.');
+  }
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -38,7 +43,7 @@ export async function apiFetch<T = unknown>(
 }
 
 export function createRealtimeSocket(token: string): Socket {
-  const socket = io(API_BASE, {
+  const socket = io(resolveApiBase(), {
     transports: ['websocket', 'polling'],
   });
   socket.on('connect', () => {

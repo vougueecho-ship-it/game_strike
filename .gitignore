@@ -3,6 +3,7 @@ dist/
 server/node_modules/
 server/.env
 server/data/local-db.json
+*firebase-adminsdk*.json
 .DS_Store
 .idea/
 .vscode/

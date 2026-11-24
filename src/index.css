@@ -92,6 +92,11 @@ body,
   overflow-x: hidden;
 }
 
+#root {
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  box-sizing: border-box;
+}
+
 button,
 input,
 select,
@@ -366,6 +371,15 @@ a {
     var(--bg-surface);
 }
 
+.auth-hero-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
 .auth-card {
   width: 100%;
   max-width: 430px;
@@ -374,6 +388,67 @@ a {
   background: var(--bg-surface-soft);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-tabs {
+  order: 1;
+}
+
+.auth-card-fields {
+  order: 2;
+}
+
+.auth-google-block {
+  order: 3;
+}
+
+.auth-google-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.auth-apk-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 11px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.84rem;
+  text-decoration: none;
+}
+
+.auth-apk-link:hover {
+  border-color: var(--gs-cyan);
+}
+
+.auth-divider.auth-divider-bottom {
+  display: none;
+}
+
+.auth-email-row {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-email-row .field-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .auth-tabs {
@@ -408,6 +483,7 @@ a {
   font-weight: 700;
   letter-spacing: -0.02em;
   margin-bottom: 6px;
+  color: var(--text-primary);
 }
 
 .auth-sub {
@@ -1319,7 +1395,7 @@ a {
 
 .games-nav {
   position: sticky;
-  top: 0;
+  top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   z-index: 40;
   background: rgba(5, 8, 20, 0.85);
   backdrop-filter: blur(16px);
@@ -1820,20 +1896,59 @@ a {
 @media (max-width: 860px) {
   .auth-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    min-height: 100dvh;
+  }
+  .auth-shell-short .auth-form-pane {
+    align-items: center;
+    justify-content: center;
+    padding-top: 16px;
+    padding-bottom: 16px;
   }
   .auth-hero-pane {
-    padding: 24px 18px;
+    padding: 14px 16px 12px;
     border-right: none;
     border-bottom: 1px solid rgba(56, 189, 248, 0.16);
+    justify-content: flex-start;
   }
-  .auth-hero-content {
-    margin: 18px 0;
+  .auth-hero-content,
+  .auth-hero-footer {
+    display: none;
   }
   .auth-form-pane {
-    padding: 22px 16px 36px;
+    align-items: flex-start;
+    padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 0px));
   }
   .auth-card {
-    padding: 22px 18px;
+    padding: 16px 14px 18px;
+  }
+  .auth-tabs {
+    order: 1;
+    margin-bottom: 12px;
+  }
+  .auth-google-block {
+    order: 2;
+  }
+  .auth-card-fields {
+    order: 3;
+  }
+  .auth-divider.auth-divider-top {
+    display: none;
+  }
+  .auth-divider.auth-divider-bottom {
+    display: flex;
+    margin-bottom: 0;
+  }
+  .auth-heading {
+    font-size: 1.25rem;
+  }
+  .auth-email-row {
+    flex-direction: column;
+  }
+  .auth-email-row .btn-secondary {
+    width: 100%;
+    min-height: 42px;
   }
 
   .suite-shell,
@@ -1950,7 +2065,7 @@ a {
 
 .lobby-rail {
   position: sticky;
-  top: 0;
+  top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   height: 100dvh;
   background: #0d080f;
   border-right: 1px solid rgba(251, 191, 36, 0.14);
@@ -2035,7 +2150,7 @@ a {
 
 .lobby-topbar {
   position: sticky;
-  top: 0;
+  top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   z-index: 30;
   height: 66px;
   padding: 0 24px;
@@ -2439,6 +2554,89 @@ a {
   color: var(--text-muted);
 }
 
+.nx-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(5, 3, 8, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.nx-modal-card {
+  width: min(480px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 22px;
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 0%, rgba(255, 31, 75, 0.16), transparent 60%),
+    #120c14;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.62);
+}
+
+.auth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(5, 3, 8, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.auth-modal {
+  position: relative;
+  width: min(400px, 100%);
+}
+
+.auth-modal .auth-form-pane {
+  padding: 0;
+  background: transparent;
+  min-height: 0;
+}
+
+.auth-modal .auth-card {
+  max-height: min(90dvh, 640px);
+  overflow: auto;
+  padding: 18px 16px 16px;
+}
+
+.auth-modal .auth-sub {
+  display: none;
+}
+
+.auth-modal .auth-heading {
+  font-size: 1.2rem;
+  margin-bottom: 10px;
+}
+
+.auth-modal .auth-tabs,
+.auth-modal .auth-google-block {
+  margin-bottom: 12px;
+  padding-right: 36px;
+}
+
+.auth-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
 /* Popup Cashier Modal */
 .cashier-backdrop {
   position: fixed;
@@ -2583,7 +2781,7 @@ a {
 
 .nx-header {
   position: sticky;
-  top: 0;
+  top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   z-index: 40;
   background: rgba(7, 7, 10, 0.82);
   backdrop-filter: blur(18px);

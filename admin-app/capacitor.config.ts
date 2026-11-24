@@ -11,6 +11,10 @@ const config: CapacitorConfig = {
     cleartext: true,
   },
   plugins: {
+    SystemBars: {
+      insetsHandling: 'native',
+      style: 'DARK',
+    },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },

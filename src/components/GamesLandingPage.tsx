@@ -24,8 +24,9 @@ import {
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { AppDownloadModal } from './AppDownloadModal';
+import { AuthSuite } from './AuthSuite';
 import { PROMO_OFFERS } from '../data/catalog';
-import { GameItem, PaymentGateway } from '../types';
+import { GameItem, PaymentGateway, UserProfile } from '../types';
 
 interface GamesLandingPageProps {
   games: GameItem[];
@@ -47,8 +48,10 @@ interface GamesLandingPageProps {
     amount: number;
     method: string;
     payoutTag: string;
-  }) => void;
+  }) => Promise<{ error?: string } | void> | { error?: string } | void;
   onClaimPromoInChat: (title: string, code: string) => void;
+  isLoggedIn: boolean;
+  onAuthenticate: (user: UserProfile, isNewSignup: boolean, authToken?: string | null) => void;
 }
 
 interface FeedRow {
@@ -111,6 +114,8 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   onSubmitDepositFromPage,
   onSubmitWithdrawFromPage,
   onClaimPromoInChat,
+  isLoggedIn,
+  onAuthenticate,
 }) => {
   const [category, setCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
@@ -135,6 +140,11 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  const requireLogin = () => {
+    setAuthOpen(true);
+  };
 
   // Subtle live jackpot counter tick
   useEffect(() => {
@@ -168,7 +178,35 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   const activeGateway =
     gateways.find((g) => g.id === gatewayId) || gateways[0];
 
+  const openChat = () => {
+    if (!isLoggedIn) {
+      requireLogin();
+      return;
+    }
+    onBackToChat();
+  };
+
+  const requestGameId = (gameName: string) => {
+    if (!isLoggedIn) {
+      requireLogin();
+      return;
+    }
+    onRequestGameIdInChat(gameName);
+  };
+
+  const claimPromo = (title: string, code: string) => {
+    if (!isLoggedIn) {
+      requireLogin();
+      return;
+    }
+    onClaimPromoInChat(title, code);
+  };
+
   const openCashier = (tab: 'deposit' | 'withdraw', gameName?: string) => {
+    if (!isLoggedIn) {
+      requireLogin();
+      return;
+    }
     if (gameName) setSelectedGame(gameName);
     else if (games.length > 0 && selectedGame === 'GameStrike Wallet') {
       setSelectedGame(games[0].name);
@@ -203,15 +241,19 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
           setToastMsg(`Deposit request for $${amount} sent to Chat Support!`);
         }
       } else {
-        onSubmitWithdrawFromPage({
+        const res = await onSubmitWithdrawFromPage({
           game: games.length > 0 ? selectedGame : 'GameStrike Wallet',
           gameUser: gameUser.trim() || 'Active Player ID',
           amount: Math.max(10, amount),
           method: activeGateway?.name || 'CashApp Pay',
           payoutTag: payoutTag.trim() || 'Verified Payout Tag',
         });
-        setToastMsg(`Cashout request for $${Math.max(10, amount)} logged to Chat Support!`);
-        setCashierOpen(false);
+        if (res && res.error) {
+          setErrorMsg(res.error);
+        } else {
+          setToastMsg(`Cashout request for $${Math.max(10, amount)} logged to Chat Support!`);
+          setCashierOpen(false);
+        }
       }
     } finally {
       setSubmitting(false);
@@ -239,7 +281,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
               <button type="button" onClick={() => scrollToSection('nx-bonuses')}>
                 VIP Bonuses
               </button>
-              <button type="button" onClick={onBackToChat}>
+              <button type="button" onClick={openChat}>
                 24/7 Chat Support
               </button>
               <button type="button" onClick={() => setAppModalOpen(true)} style={{ color: '#ffd166', fontWeight: 700 }}>
@@ -301,7 +343,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
             <button
               type="button"
               className="nx-btn-glass nx-btn-lg"
-              onClick={onBackToChat}
+              onClick={openChat}
             >
               <MessageSquare size={18} />
               <span>Open 24/7 Chat Desk</span>
@@ -376,7 +418,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                 type="button"
                 className="nx-btn-ghost"
                 style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-                onClick={onBackToChat}
+                onClick={openChat}
               >
                 Open Chat →
               </button>
@@ -423,10 +465,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
             <div className="lobby-empty">
               <Plug size={28} color="#ffd166" />
               <h3>No Connected Games Yet</h3>
-              <p>Add your Game APIs in Admin Panel and they appear here automatically.</p>
-              <a href="#/admin" className="nx-btn-glass">
-                Open Admin Panel → Games &amp; APIs
-              </a>
+              <p>Official games will show up here as soon as they are live.</p>
             </div>
           ) : (
             <div className="nx-games-grid">
@@ -489,7 +528,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                             type="button"
                             className="nx-btn-glass"
                             style={{ padding: '9px 12px', fontSize: '0.78rem' }}
-                            onClick={() => onRequestGameIdInChat(game.name)}
+                            onClick={() => requestGameId(game.name)}
                           >
                             <Gamepad2 size={14} />
                             <span>ID</span>
@@ -643,7 +682,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                   type="button"
                   className="nx-btn-glass"
                   style={{ width: '100%', marginTop: 'auto' }}
-                  onClick={() => onClaimPromoInChat(offer.title, offer.code)}
+                  onClick={() => claimPromo(offer.title, offer.code)}
                 >
                   <Gift size={15} color="#ffd166" />
                   <span>Claim in Chat</span>
@@ -745,12 +784,9 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
             <strong>GameStrike.io</strong> — 24/7 Official Gaming Concierge • 18+ Play Responsibly
           </span>
           <div style={{ display: 'flex', gap: 16 }}>
-            <button type="button" onClick={onBackToChat} style={{ color: '#ffd166', fontWeight: 600 }}>
+            <button type="button" onClick={openChat} style={{ color: '#ffd166', fontWeight: 600 }}>
               Live Chat Support
             </button>
-            <a href="#/admin" style={{ color: 'var(--text-muted)' }}>
-              Admin Panel
-            </a>
           </div>
         </footer>
       </main>
@@ -769,7 +805,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
           <ArrowUpCircle size={18} color="#ffd166" />
           <span>Withdraw</span>
         </button>
-        <button type="button" className="lobby-bottom-item" onClick={onBackToChat}>
+        <button type="button" className="lobby-bottom-item" onClick={openChat}>
           <MessageSquare size={18} color="#ff1f4b" />
           <span>Chat</span>
         </button>
@@ -1065,6 +1101,14 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
         </div>
       )}
       <AppDownloadModal open={appModalOpen} onClose={() => setAppModalOpen(false)} />
+      {authOpen && !isLoggedIn && (
+        <AuthSuite
+          variant="modal"
+          initialMode="login"
+          onClose={() => setAuthOpen(false)}
+          onAuthenticate={onAuthenticate}
+        />
+      )}
     </div>
   );
 };

@@ -1,42 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
+  Download,
   Gamepad2,
   KeyRound,
   Mail,
   MessageSquare,
   ShieldCheck,
-  Sparkles,
   Zap,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { apiFetch } from '../services/api';
 import { UserProfile } from '../types';
 
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: Record<string, unknown>) => void;
-          renderButton: (el: HTMLElement, config: Record<string, unknown>) => void;
-          prompt: () => void;
-        };
-      };
-    };
-  }
-}
-
 interface AuthSuiteProps {
   onAuthenticate: (user: UserProfile, isNewSignup: boolean, authToken?: string | null) => void;
-  onPreviewGames: () => void;
+  onPreviewGames?: () => void;
+  variant?: 'page' | 'modal';
+  initialMode?: 'signup' | 'login';
+  onClose?: () => void;
 }
 
 export const AuthSuite: React.FC<AuthSuiteProps> = ({
   onAuthenticate,
   onPreviewGames,
+  variant = 'page',
+  initialMode = 'signup',
+  onClose,
 }) => {
-  const [mode, setMode] = useState<'signup' | 'login' | 'forgot'>('signup');
+  const [mode, setMode] = useState<'signup' | 'login' | 'forgot'>(initialMode);
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [password, setPassword] = useState('');
@@ -53,86 +45,127 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
-  const googleBtnRef = React.useRef<HTMLDivElement>(null);
+  const onAuthRef = React.useRef(onAuthenticate);
+  onAuthRef.current = onAuthenticate;
+  const googleDoneRef = React.useRef(false);
+  useEffect(() => {
+    if (variant !== 'modal') return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [variant, onClose]);
 
-  // Load Google Client ID and render Google Sign-In button
+  useEffect(() => {
+    const saved = sessionStorage.getItem('gs_google_error');
+    if (!saved) return;
+    sessionStorage.removeItem('gs_google_error');
+    setErrorMsg(saved);
+  }, []);
+
+  // Load Google Client ID. Sign-in itself uses the same popup flow as Winning Heaven.
   useEffect(() => {
     apiFetch<{ clientId: string }>('/api/auth/google-client-id')
       .then((res) => {
         const id = res.clientId || '893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com';
-        if (id) {
-          setGoogleClientId(id);
-          loadGoogleScript(id);
-        }
+        if (id) setGoogleClientId(id);
       })
       .catch(() => {
-        const fallbackId = '893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com';
-        setGoogleClientId(fallbackId);
-        loadGoogleScript(fallbackId);
+        setGoogleClientId('893262340852-97ed0j09h8mdadc60oj2dslcb5fibbcv.apps.googleusercontent.com');
       });
   }, []);
 
-  function loadGoogleScript(clientId: string) {
-    if (document.getElementById('google-gsi-script')) {
-      initializeGoogle(clientId);
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = 'google-gsi-script';
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => initializeGoogle(clientId);
-    document.head.appendChild(script);
-  }
-
-  function initializeGoogle(clientId: string) {
-    if (!window.google?.accounts?.id) {
-      setTimeout(() => initializeGoogle(clientId), 250);
-      return;
-    }
-    window.google.accounts.id.initialize({
-      client_id: clientId,
-      callback: handleGoogleResponse,
-      auto_select: false,
-    });
-    if (googleBtnRef.current) {
-      googleBtnRef.current.innerHTML = '';
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        type: 'standard',
-        theme: 'filled_black',
-        size: 'large',
-        text: 'continue_with',
-        shape: 'pill',
-        width: 320,
-      });
-    }
-  }
-
-  const triggerGooglePrompt = () => {
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.prompt();
-    }
+  const finishGoogle = (user: UserProfile, isNewUser: boolean, authToken: string) => {
+    if (googleDoneRef.current) return;
+    googleDoneRef.current = true;
+    onAuthRef.current(user, isNewUser, authToken);
   };
 
-  async function handleGoogleResponse(response: { credential: string }) {
-    setLoading(true);
+  const triggerGooglePrompt = async () => {
     setErrorMsg('');
+    if (!googleClientId) {
+      setErrorMsg('Google sign-in is still loading. Please try again in a second.');
+      return;
+    }
+    setLoading(true);
     try {
-      const res = await apiFetch<{ token: string; user: UserProfile; isNewUser: boolean }>(
-        '/api/auth/google',
-        {
-          method: 'POST',
-          body: JSON.stringify({ credential: response.credential }),
-        }
+      const session = await apiFetch<{ sid: string }>('/api/auth/google/session', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      oauthUrl.searchParams.set('client_id', googleClientId);
+      oauthUrl.searchParams.set('redirect_uri', window.location.origin);
+      oauthUrl.searchParams.set('response_type', 'code');
+      oauthUrl.searchParams.set('scope', 'openid email profile');
+      oauthUrl.searchParams.set('prompt', 'select_account');
+      oauthUrl.searchParams.set('include_granted_scopes', 'true');
+      oauthUrl.searchParams.set('state', session.sid);
+
+      const nativeApp = Boolean(
+        (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
       );
-      onAuthenticate(res.user, Boolean(res.isNewUser), res.token);
+      const narrowScreen = window.matchMedia('(max-width: 860px)').matches;
+      if (nativeApp || narrowScreen) {
+        window.location.assign(oauthUrl.toString());
+        return;
+      }
+
+      const popup = window.open(
+        oauthUrl.toString(),
+        'gamestrike_google',
+        'popup=yes,width=500,height=680,left=80,top=80'
+      );
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data as { type?: string; token?: string; user?: UserProfile; isNewUser?: boolean };
+        if (data?.type !== 'gamestrike-google' || !data.token || !data.user) return;
+        window.removeEventListener('message', onMessage);
+        finishGoogle(data.user, Boolean(data.isNewUser), data.token);
+        setLoading(false);
+      };
+      window.addEventListener('message', onMessage);
+
+      const poll = window.setInterval(async () => {
+        try {
+          const status = await apiFetch<{
+            status: string;
+            token?: string;
+            user?: UserProfile;
+            isNewUser?: boolean;
+          }>(`/api/auth/google/session/${session.sid}`);
+          if (status.status === 'ready' && status.token && status.user) {
+            window.clearInterval(poll);
+            window.removeEventListener('message', onMessage);
+            finishGoogle(status.user, Boolean(status.isNewUser), status.token);
+            setLoading(false);
+            try {
+              popup?.close();
+            } catch {
+              /* popup may already be closed */
+            }
+          }
+        } catch {
+          /* keep polling until the session is ready or expires */
+        }
+      }, 500);
+
+      window.setTimeout(() => {
+        window.clearInterval(poll);
+        window.removeEventListener('message', onMessage);
+        setLoading(false);
+      }, 180000);
+
+      if (!popup) {
+        window.location.assign(oauthUrl.toString());
+      }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Google sign-in failed.');
-    } finally {
+      setErrorMsg(err.message || 'Could not open Google sign-in.');
       setLoading(false);
     }
-  }
+  };
 
   const handleSendOtp = async (purpose: 'signup' | 'reset') => {
     setErrorMsg('');
@@ -160,7 +193,7 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
@@ -207,10 +240,19 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
         return;
       }
 
-      // Login
+      // Login — read the live input values so Android autofill is included.
+      const form = e.currentTarget;
+      const emailInput = form.querySelector<HTMLInputElement>('input[type="email"]');
+      const passwordInput = form.querySelector<HTMLInputElement>('input[type="password"]');
+      const email = (emailInput?.value || contact).trim();
+      const pass = passwordInput?.value || password;
+      if (!email || !pass) {
+        setErrorMsg('Enter your email and password.');
+        return;
+      }
       const res = await apiFetch<{ token: string; user: UserProfile }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ contact: contact.trim(), password }),
+        body: JSON.stringify({ contact: email, password: pass }),
       });
       onAuthenticate(res.user, false, res.token);
     } catch (err: any) {
@@ -220,33 +262,11 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
     }
   };
 
-  const handleInstantGuest = async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ token: string; user: UserProfile }>('/api/auth/demo', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      onAuthenticate(res.user, true, res.token);
-    } catch {
-      const profile: UserProfile = {
-        id: `GS-${Math.floor(10000 + Math.random() * 90000)}`,
-        name: 'Guest Player',
-        username: `@strike${Math.floor(100 + Math.random() * 899)}`,
-        contact: 'guest@gamestrike.io',
-        joinedAt: new Date().toLocaleDateString(),
-        tier: 'VIP Strike',
-      };
-      onAuthenticate(profile, true, null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="auth-shell">
+  const card = (
+    <>
+      {variant !== 'modal' && (
       <div className="auth-hero-pane">
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="auth-hero-bar">
           <BrandLogo size="md" subtitle="24/7 GAMING SUPPORT SUITE" />
           <button
             type="button"
@@ -317,14 +337,39 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
 
         <div className="auth-hero-footer">
           <span>gamestrike.io • Verified 24/7 Support Desk</span>
-          <a href="#/admin" className="mono" style={{ color: '#ffd166', fontWeight: 600 }}>
-            Admin Panel App →
-          </a>
         </div>
       </div>
+      )}
 
       <div className="auth-form-pane">
         <div className="auth-card">
+          <div className="auth-google-block">
+            <div className="auth-divider auth-divider-top">or continue with</div>
+            <button
+              type="button"
+              className="btn-secondary auth-google-btn"
+              onClick={triggerGooglePrompt}
+              disabled={!googleClientId}
+            >
+              <svg width="18" height="18" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.77-4.59l-7.98-6.19A23.998 23.998 0 000 24c0 3.77.9 7.35 2.56 10.52l7.97-5.93z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.93C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+              <span>Continue with Google</span>
+            </button>
+            <a
+              className="auth-apk-link"
+              href="/downloads/GameStrike.apk"
+              download="GameStrike.apk"
+            >
+              <Download size={16} />
+              <span>Download Android APK</span>
+            </a>
+            <div className="auth-divider auth-divider-bottom">or use your email</div>
+          </div>
+
           <div className="auth-tabs">
             <button
               type="button"
@@ -350,6 +395,7 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
             </button>
           </div>
 
+          <div className="auth-card-fields">
           <h2 className="auth-heading">
             {mode === 'signup'
               ? 'Open your Support Suite'
@@ -394,13 +440,19 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
 
             <div className="field-group">
               <label className="field-label">Email Address</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="auth-email-row">
                 <input
                   className="field-input"
                   type="email"
+                  name="email"
+                  autoComplete="username"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   placeholder="you@example.com"
                   value={contact}
                   onChange={(e) => setContact(e.target.value)}
+                  onInput={(e) => setContact(e.currentTarget.value)}
                   required
                 />
                 {(mode === 'signup' || mode === 'forgot') && (
@@ -433,7 +485,7 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {mode === 'signup' && variant !== 'modal' && (
               <div className="field-group">
                 <label className="field-label">Referral Code (Optional — Get $10 Freeplay)</label>
                 <input
@@ -469,9 +521,12 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
               <input
                 className="field-input"
                 type="password"
+                name="password"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onInput={(e) => setPassword(e.currentTarget.value)}
                 required
               />
             </div>
@@ -505,55 +560,35 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
               Back to Sign In
             </button>
           )}
-
-          <div className="auth-divider">or continue with</div>
-
-          {/* Google Sign-In Button Container */}
-          <div
-            ref={googleBtnRef}
-            style={{ width: '100%', minHeight: 44, display: 'flex', justifyContent: 'center', marginBottom: 10 }}
-          >
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={triggerGooglePrompt}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                padding: '11px 16px',
-                borderRadius: 999,
-                fontWeight: 700,
-                fontSize: '0.84rem',
-                cursor: 'pointer',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
-                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                <path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.77-4.59l-7.98-6.19A23.998 23.998 0 000 24c0 3.77.9 7.35 2.56 10.52l7.97-5.93z"/>
-                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.93C6.51 42.62 14.62 48 24 48z"/>
-              </svg>
-              <span>Continue with Google</span>
-            </button>
           </div>
 
-          <div className="auth-divider">or test immediately</div>
-
-          <button
-            type="button"
-            className="btn-secondary"
-            style={{ width: '100%' }}
-            disabled={loading}
-            onClick={handleInstantGuest}
-          >
-            <Sparkles size={16} color="#ffd166" />
-            <span>Continue as Instant Demo Player</span>
-          </button>
         </div>
       </div>
+    </>
+  );
+
+  if (variant === 'modal') {
+    return (
+      <div className="auth-modal-backdrop" onClick={onClose}>
+        <div
+          className="auth-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sign in to GameStrike"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button type="button" className="auth-modal-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+          {card}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`auth-shell${mode === 'signup' ? '' : ' auth-shell-short'}`}>
+      {card}
     </div>
   );
 };

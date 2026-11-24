@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import http from 'http';
+import crypto from 'crypto';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -529,34 +530,145 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// GOOGLE OAUTH — Continue with Google (ID Token verification)
+function isAllowedGoogleRedirect(uri) {
+  try {
+    const url = new URL(uri);
+    if (url.pathname !== '/' && url.pathname !== '') return false;
+    const allowed = new Set([
+      'https://gamestrike.io',
+      'http://localhost:5173',
+      'https://localhost',
+      'http://localhost',
+    ]);
+    for (const key of ['PUBLIC_APP_URL', 'CLIENT_ORIGIN']) {
+      if (!process.env[key]) continue;
+      try {
+        allowed.add(new URL(process.env[key]).origin);
+      } catch {
+        // ignore invalid env URL
+      }
+    }
+    return allowed.has(url.origin);
+  } catch {
+    return false;
+  }
+}
+
+const googleSessions = new Map();
+
+function pruneGoogleSessions() {
+  const now = Date.now();
+  for (const [sid, doc] of googleSessions) {
+    if (doc.expiresAt < now) googleSessions.delete(sid);
+  }
+}
+
+app.post('/api/auth/google/session', (_req, res) => {
+  pruneGoogleSessions();
+  const sid = crypto.randomBytes(24).toString('hex');
+  googleSessions.set(sid, { status: 'pending', expiresAt: Date.now() + 10 * 60 * 1000 });
+  res.json({ sid });
+});
+
+app.get('/api/auth/google/session/:sid', (req, res) => {
+  const doc = googleSessions.get(req.params.sid);
+  if (!doc || doc.expiresAt < Date.now()) {
+    return res.status(404).json({ error: 'Login session expired.' });
+  }
+  if (doc.status !== 'ready') return res.json({ status: 'pending' });
+  googleSessions.delete(req.params.sid);
+  res.json({
+    status: 'ready',
+    token: doc.token,
+    user: doc.user,
+    isNewUser: Boolean(doc.isNewUser),
+  });
+});
+
+function rememberGoogleSession(sid, payload) {
+  if (!sid) return;
+  const doc = googleSessions.get(sid);
+  if (!doc || doc.expiresAt < Date.now()) return;
+  googleSessions.set(sid, { ...doc, status: 'ready', ...payload });
+}
+
+// GOOGLE OAUTH — Continue with Google
 app.post('/api/auth/google', async (req, res) => {
   try {
-    const { idToken, credential } = req.body;
-    const tokenToVerify = idToken || credential;
-    if (!tokenToVerify) {
-      return res.status(400).json({ error: 'Google credential/idToken is required.' });
+    let { idToken, credential, accessToken } = req.body;
+
+    if (req.body.code) {
+      const redirectUri = String(req.body.redirectUri || '');
+      if (!isAllowedGoogleRedirect(redirectUri)) {
+        return res.status(400).json({ error: 'Google redirect is not allowed for this app.' });
+      }
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        return res.status(500).json({ error: 'Google sign-in is not configured on the server.' });
+      }
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code: String(req.body.code),
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      if (!tokenRes.ok || !tokenData.access_token) {
+        return res.status(401).json({
+          error: tokenData.error_description || 'Google sign-in could not be verified. Please try again.',
+        });
+      }
+      accessToken = tokenData.access_token;
     }
 
-    // Decode the Google JWT (ID Token) — for production, verify signature against Google certs
-    const parts = tokenToVerify.split('.');
-    if (parts.length !== 3) {
-      return res.status(400).json({ error: 'Invalid Google token format.' });
-    }
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+    let googleEmail = '';
+    let googleName = '';
+    let googlePicture = '';
 
-    const googleEmail = (payload.email || '').toLowerCase().trim();
-    const googleName = payload.name || payload.given_name || googleEmail.split('@')[0];
-    const googlePicture = payload.picture || '';
+    if (accessToken) {
+      const infoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const info = await infoRes.json().catch(() => ({}));
+      if (!infoRes.ok || !info.email) {
+        return res.status(401).json({ error: 'Google sign-in could not be verified. Please try again.' });
+      }
+      if (info.email_verified === false) {
+        return res.status(401).json({ error: 'That Google account email is not verified.' });
+      }
+      googleEmail = String(info.email).toLowerCase().trim();
+      googleName = info.name || info.given_name || googleEmail.split('@')[0];
+      googlePicture = info.picture || '';
+    } else {
+      const tokenToVerify = idToken || credential;
+      if (!tokenToVerify) {
+        return res.status(400).json({ error: 'Google sign-in token is required.' });
+      }
 
-    if (!googleEmail) {
-      return res.status(400).json({ error: 'Google token does not contain an email.' });
-    }
+      const parts = String(tokenToVerify).split('.');
+      if (parts.length !== 3) {
+        return res.status(400).json({ error: 'Invalid Google token format.' });
+      }
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
 
-    // Verify audience matches our Google Client ID (if configured)
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (clientId && payload.aud !== clientId) {
-      return res.status(401).json({ error: 'Google token audience mismatch.' });
+      googleEmail = (payload.email || '').toLowerCase().trim();
+      googleName = payload.name || payload.given_name || googleEmail.split('@')[0];
+      googlePicture = payload.picture || '';
+
+      if (!googleEmail) {
+        return res.status(400).json({ error: 'Google token does not contain an email.' });
+      }
+
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      if (clientId && payload.aud !== clientId) {
+        return res.status(401).json({ error: 'Google token audience mismatch.' });
+      }
     }
 
     // Check if user already exists
@@ -569,11 +681,13 @@ app.post('/api/auth/google', async (req, res) => {
         });
       }
       // Existing user — login
-      res.json({
+      const existingPayload = {
         token: signToken(user),
         user: sanitizeUser(user),
         isNewUser: false,
-      });
+      };
+      rememberGoogleSession(String(req.body.sid || ''), existingPayload);
+      res.json(existingPayload);
     } else {
       // New user — auto-register via Google
       const handle = googleName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'player';
@@ -607,47 +721,14 @@ app.post('/api/auth/google', async (req, res) => {
 
       io.to('admins').emit('admin:new-player', sanitizeUser(user));
 
-      res.status(201).json({
+      const createdPayload = {
         token: signToken(user),
         user: sanitizeUser(user),
         isNewUser: true,
-      });
+      };
+      rememberGoogleSession(String(req.body.sid || ''), createdPayload);
+      res.status(201).json(createdPayload);
     }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/auth/demo', async (_req, res) => {
-  try {
-    const code = Math.floor(10000 + Math.random() * 90000);
-    const user = await db.createUser({
-      playerCode: `GS-${code}`,
-      name: `Player ${String(code).slice(0, 3)}`,
-      username: `@strike${String(code).slice(0, 3)}`,
-      contact: `demo${code}@gamestrike.io`,
-      passwordHash: await bcrypt.hash('demo1234', 10),
-      role: 'player',
-      tier: 'VIP Strike',
-    });
-
-    await db.createMessage({
-      userId: String(user._id),
-      threadId: 'concierge',
-      sender: 'agent',
-      agentName: 'GameStrike Concierge',
-      text: `Welcome to GameStrike.io, ${user.name}! ⚡\n\nAutomated CashTap Checkout is live. Request an instant Deposit, Cashout, or Game ID right here in chat.`,
-      quickReplies: [
-        { label: '⚡ Auto Deposit (CashTap)', action: 'deposit' },
-        { label: '💸 Withdraw / Cashout', action: 'withdraw' },
-        { label: '🎮 Get Game ID', action: 'game-id' },
-        { label: '🏦 Payment Methods', action: 'payments' },
-        { label: '🛟 Report Issue / Live Agent', action: 'issue' },
-      ],
-    });
-
-    io.to('admins').emit('admin:new-player', sanitizeUser(user));
-    res.json({ token: signToken(user), user: sanitizeUser(user) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

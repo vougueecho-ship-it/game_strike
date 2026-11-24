@@ -539,7 +539,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
 
         {games.length === 0 ? (
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            No API-connected games have been added yet. Add your game APIs from the <strong>Admin Panel → Games &amp; APIs</strong> and they will appear here automatically.
+            No games are available yet. They will show up here as soon as they are live.
           </p>
         ) : (
           <>

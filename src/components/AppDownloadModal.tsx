@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BellRing,
   CheckCircle2,
@@ -43,6 +44,20 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({ open, onClos
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const handlePwaInstall = async () => {
@@ -60,16 +75,14 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({ open, onClos
     setDeferredPrompt(null);
   };
 
-  return (
-    <div
-      className="nx-modal-overlay"
-      onClick={onClose}
-      style={{ zIndex: 120 }}
-    >
+  return createPortal(
+    <div className="nx-modal-overlay" onClick={onClose} role="presentation">
       <div
         className="nx-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Download the GameStrike app"
         onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 480, width: '94vw', padding: 22 }}
       >
         {/* Header */}
         <div
@@ -340,7 +353,8 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({ open, onClos
           </span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

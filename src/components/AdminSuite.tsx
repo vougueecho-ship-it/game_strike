@@ -598,6 +598,16 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <a
+              href="/downloads/GameStrike-Admin.apk"
+              download="GameStrike-Admin.apk"
+              className="btn-secondary"
+              style={{ padding: '7px 12px', fontSize: '0.78rem', textDecoration: 'none' }}
+              title="Download the GameStrike Admin Android app"
+            >
+              <Download size={15} />
+              <span>Admin APK</span>
+            </a>
             <button
               type="button"
               className="btn-secondary"

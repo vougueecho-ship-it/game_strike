@@ -78,53 +78,6 @@ function mapServerTicket(t: any): TicketItem {
   };
 }
 
-function buildWelcomeMessages(user: UserProfile): ChatMessage[] {
-  const t = nowTime();
-  return [
-    {
-      id: uid(),
-      threadId: 'concierge',
-      sender: 'agent',
-      agentName: 'GameStrike Concierge',
-      text: `Welcome to GameStrike.io, ${user.name}! ⚡\n\nI'm your 24/7 Gaming Support Desk. Anything you need — New Game IDs, Instant Deposits, Fast Cashouts, Payment Tags, or Bonuses — just ask right here in chat.\n\nSelect an option below or type your question:`,
-      timestamp: t,
-      quickReplies: [
-        { label: '💳 Deposit / Load Credits', action: 'deposit' },
-        { label: '💸 Withdraw / Cashout', action: 'withdraw' },
-        { label: '🎮 Get New Game ID', action: 'game-id' },
-        { label: '🏦 Payment Methods', action: 'payments' },
-        { label: '🎁 Claim Bonus', action: 'bonuses' },
-        { label: '🔑 Reset Password', action: 'password' },
-      ],
-    },
-    {
-      id: uid(),
-      threadId: 'cashier',
-      sender: 'agent',
-      agentName: 'Instant Cashier Desk',
-      text: `Hi ${user.name}! This is the dedicated Cashier Desk for fast Deposits & Withdrawals (Cash App, Chime, PayPal, Venmo, Zelle, Apple Pay & Crypto).`,
-      timestamp: t,
-      quickReplies: [
-        { label: '💳 Start Deposit', action: 'deposit' },
-        { label: '💸 Request Cashout', action: 'withdraw' },
-        { label: '🏦 View Payment Tags', action: 'payments' },
-      ],
-    },
-    {
-      id: uid(),
-      threadId: 'accounts',
-      sender: 'agent',
-      agentName: 'Game IDs & Bonuses',
-      text: `Welcome ${user.name}! Need a Fire Kirin, Orion Stars, Juwa 777, or Game Vault login? Tap below to generate your Game ID or claim your 100% Welcome Bonus.`,
-      timestamp: t,
-      quickReplies: [
-        { label: '🎮 Create Game ID', action: 'game-id' },
-        { label: '🎁 100% Welcome Bonus', action: 'bonuses' },
-      ],
-    },
-  ];
-}
-
 export const App: React.FC = () => {
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
@@ -164,6 +117,11 @@ export const App: React.FC = () => {
     () => typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
   const [route, setRoute] = useState<RouteView>(parseRouteFromHash);
+  const [googleReturn, setGoogleReturn] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const search = new URLSearchParams(window.location.search);
+    return search.has('code') || window.location.hash.includes('access_token=');
+  });
   const [activeThread, setActiveThread] = useState<ThreadId>('concierge');
   const [isTyping, setIsTyping] = useState(false);
   const [humanTakeover, setHumanTakeover] = useState(false);
@@ -285,52 +243,78 @@ export const App: React.FC = () => {
     };
   }, [token, user?._id]);
 
-  const handleAuthenticate = async (
+  const handleAuthenticate = (
     profile: UserProfile,
-    isNewSignup: boolean,
+    _isNewSignup: boolean,
     providedToken?: string | null
   ) => {
-    if (providedToken) {
-      setUser(profile);
-      setToken(providedToken);
-      setActiveThread('concierge');
-      navigate('chat');
+    if (!providedToken) return;
+    setUser(profile);
+    setToken(providedToken);
+    setActiveThread('concierge');
+    navigate('chat');
+  };
+
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const hashParams = new URLSearchParams(hash);
+    const code = search.get('code') || '';
+    const accessToken = hashParams.get('access_token') || '';
+    const sid = search.get('state') || hashParams.get('state') || '';
+    const oauthError = search.get('error') || hashParams.get('error');
+    if (!code && !accessToken && !oauthError) return;
+    window.history.replaceState({}, '', `${window.location.pathname}`);
+    if (oauthError || (!code && !accessToken)) {
+      sessionStorage.setItem('gs_google_error', 'Google sign-in was cancelled.');
+      setGoogleReturn(false);
       return;
     }
-
-    try {
-      const endpoint = profile.contact.startsWith('guest@')
-        ? '/api/auth/demo'
-        : isNewSignup
-        ? '/api/auth/register'
-        : '/api/auth/login';
-
-      const payload =
-        endpoint === '/api/auth/demo'
-          ? {}
-          : { name: profile.name, contact: profile.contact, password: 'strike_user_pass' };
-
-      const res = await apiFetch<{ token: string; user: UserProfile }>(endpoint, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      setUser(res.user);
-      setToken(res.token);
-      setActiveThread('concierge');
-      navigate('chat');
-    } catch {
-      setUser(profile);
-      setToken(null);
-      setActiveThread('concierge');
-      navigate('chat');
-      setIsTyping(true);
-      setMessages([]);
-      setTimeout(() => {
-        setMessages(buildWelcomeMessages(profile));
-        setIsTyping(false);
-      }, 600);
-    }
-  };
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{ token: string; user: UserProfile; isNewUser: boolean }>(
+          '/api/auth/google',
+          {
+            method: 'POST',
+            body: JSON.stringify(
+              code
+                ? { code, redirectUri: window.location.origin, sid }
+                : { accessToken, sid }
+            ),
+          }
+        );
+        if (window.opener && window.opener !== window) {
+          window.opener.postMessage(
+            {
+              type: 'gamestrike-google',
+              token: res.token,
+              user: res.user,
+              isNewUser: Boolean(res.isNewUser),
+            },
+            window.location.origin
+          );
+          window.close();
+          return;
+        }
+        if (!cancelled) {
+          setUser(res.user);
+          setToken(res.token);
+          setActiveThread('concierge');
+          navigate('chat');
+          setGoogleReturn(false);
+        }
+      } catch {
+        if (!cancelled) {
+          sessionStorage.setItem('gs_google_error', 'Google sign-in could not be verified.');
+          setGoogleReturn(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSignOut = () => {
     setUser(null);
@@ -604,22 +588,10 @@ export const App: React.FC = () => {
     handle: string;
     receiptScreenshotUrl?: string;
   }): Promise<{ checkoutUrl?: string; error?: string } | void> => {
-    let activeToken = token;
+    const activeToken = token;
     if (!activeToken) {
-      // Auto-register a demo session on the backend so CashTap Checkout works immediately
-      try {
-        const res = await apiFetch<{ token: string; user: UserProfile }>('/api/auth/demo', {
-          method: 'POST',
-          body: JSON.stringify({}),
-        });
-        activeToken = res.token;
-        setToken(res.token);
-        setUser(res.user);
-      } catch (err: any) {
-        const msg = err.message || 'Backend server is not reachable.';
-        pushAgentReply(activeThread, { text: `Could not start CashTap Checkout: ${msg}` });
-        return { error: msg };
-      }
+      navigate('chat');
+      return { error: 'Sign in with your account before depositing.' };
     }
 
     try {
@@ -667,37 +639,20 @@ export const App: React.FC = () => {
     payoutTag: string;
     balanceScreenshotUrl?: string;
     qrScreenshotUrl?: string;
-  }) => {
-    if (token) {
-      try {
-        await apiFetch('/api/tickets/withdraw', { method: 'POST', body: JSON.stringify(data) }, token);
-      } catch (err: any) {
-        pushAgentReply(activeThread, {
-          text: `⚠️ Withdrawal Rule: ${err.message || 'Could not submit cashout.'}`,
-        });
-      }
-      return;
+  }): Promise<{ error?: string } | void> => {
+    if (!token) {
+      navigate('chat');
+      return { error: 'Sign in with your account before requesting a cashout.' };
     }
-    const ticketId = `WD-${Math.floor(1000 + Math.random() * 9000)}`;
-    setTickets((prev) => [
-      {
-        id: ticketId,
-        type: 'withdraw',
-        title: `Cashout $${data.amount} (${data.game})`,
-        subtitle: `${data.method} → ${data.payoutTag}`,
-        amount: data.amount,
-        game: data.game,
-        method: data.method,
-        status: 'Processing',
-        createdAt: nowTime(),
-      },
-      ...prev,
-    ]);
-    pushAgentReply(activeThread, {
-      text: `Cashout Ticket created! Our Cashier Desk is verifying your balance on ${data.game} (${data.gameUser}) and will send $${data.amount} to ${data.payoutTag}.`,
-      card: 'ticket-receipt',
-      cardData: { ticketId, ticketType: 'withdraw', game: data.game, amount: data.amount, method: data.method, handle: data.payoutTag },
-    });
+    try {
+      await apiFetch('/api/tickets/withdraw', { method: 'POST', body: JSON.stringify(data) }, token);
+    } catch (err: any) {
+      const errText = err.message || 'Could not submit cashout.';
+      pushAgentReply(activeThread, {
+        text: `⚠️ Withdrawal Rule: ${errText}`,
+      });
+      return { error: errText };
+    }
   };
 
   const handleSubmitGameId = async (game: string) => {
@@ -732,43 +687,17 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (token) {
-      try {
-        await apiFetch('/api/tickets/game-id', { method: 'POST', body: JSON.stringify({ game }) }, token);
-      } catch (err: any) {
-        pushAgentReply(activeThread, {
-          text: `⚠️ Could not generate ${game} ID: ${err.message || 'Please try again.'}`,
-        });
-      }
+    if (!token) {
+      navigate('chat');
       return;
     }
-    const ticketId = `ID-${Math.floor(1000 + Math.random() * 9000)}`;
-    const prefix = game.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
-    const loginId = `GS_${prefix}${Math.floor(1000 + Math.random() * 8999)}`;
-    const tempPass = `Strike@${Math.floor(100 + Math.random() * 899)}`;
-    setTickets((prev) => [
-      {
-        id: ticketId,
-        type: 'game-id',
-        title: `${game} Account Ready`,
-        subtitle: `Login: ${loginId}`,
-        game,
-        gameUser: loginId,
-        gamePassword: tempPass,
-        status: 'Completed',
-        createdAt: nowTime(),
-      },
-      ...prev,
-    ]);
-    pushAgentReply(activeThread, {
-      text: `Your ${game} account is active! Save your credentials below:`,
-      card: 'ticket-receipt',
-      cardData: { ticketId, ticketType: 'game-id', game, loginId, tempPass },
-      quickReplies: [
-        { label: `💳 Load ${game} Now`, action: 'deposit' },
-        { label: '🎁 Claim 100% Bonus', action: 'bonuses' },
-      ],
-    });
+    try {
+      await apiFetch('/api/tickets/game-id', { method: 'POST', body: JSON.stringify({ game }) }, token);
+    } catch (err: any) {
+      pushAgentReply(activeThread, {
+        text: `⚠️ Could not generate ${game} ID: ${err.message || 'Please try again.'}`,
+      });
+    }
   };
 
   const handleSubmitIssue = async (data: {
@@ -910,6 +839,23 @@ export const App: React.FC = () => {
     });
   };
 
+  if (googleReturn) {
+    return (
+      <div
+        style={{
+          minHeight: '100dvh',
+          display: 'grid',
+          placeItems: 'center',
+          background: '#140c08',
+          color: '#f6efe4',
+          fontFamily: 'inherit',
+        }}
+      >
+        Signing you in with Google…
+      </div>
+    );
+  }
+
   // ADMIN PANEL APP ROUTE (#/admin)
   if (route === 'admin') {
     return (
@@ -931,23 +877,13 @@ export const App: React.FC = () => {
         onToggleTheme={() => setDarkMode((d) => !d)}
         onBackToChat={() => navigate('chat')}
         onRequestGameIdInChat={(gameName) => {
-          if (!user) {
-            handleAuthenticate(
-              {
-                id: `GS-${Math.floor(10000 + Math.random() * 90000)}`,
-                name: 'Guest Player',
-                username: `@strike${Math.floor(100 + Math.random() * 899)}`,
-                contact: 'guest@gamestrike.io',
-                joinedAt: new Date().toLocaleDateString(),
-                tier: 'Starter',
-              },
-              true
-            );
-          } else {
+          if (!user || !token) {
             navigate('chat');
-            setActiveThread('concierge');
-            handleTriggerAction('game-id', gameName, 'concierge');
+            return;
           }
+          navigate('chat');
+          setActiveThread('concierge');
+          handleTriggerAction('game-id', gameName, 'concierge');
         }}
         onSubmitDepositFromPage={handleSubmitDeposit}
         onSubmitWithdrawFromPage={handleSubmitWithdraw}
@@ -956,12 +892,14 @@ export const App: React.FC = () => {
           setActiveThread('concierge');
           handleClaimPromo(title, code);
         }}
+        isLoggedIn={Boolean(user && token)}
+        onAuthenticate={handleAuthenticate}
       />
     );
   }
 
   // AUTH GATE -> BUSINESS SUITE CHAT SUPPORT
-  if (!user) {
+  if (!user || !token) {
     return (
       <AuthSuite
         onAuthenticate={handleAuthenticate}
