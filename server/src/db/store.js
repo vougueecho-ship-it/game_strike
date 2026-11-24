@@ -179,6 +179,11 @@ const DEFAULT_SETTINGS = {
   withdrawMultiplier: 3,
   minWithdrawFallback: 20,
   enforceDeviceLimit: true,
+  dailyBonusPercent: 10,
+  dailyBonusLabel: "Today's Bonus",
+  dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
+  freeplayAmount: 5,
+  freeplayFromEmails: '',
 };
 
 let useMongo = false;

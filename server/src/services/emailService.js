@@ -184,3 +184,29 @@ export async function sendOtpEmail({ to, otp, purpose = 'signup' }) {
 
   return { sentViaSmtp: true };
 }
+
+export async function sendFreeplayTaskEmail({ to, name, from, amount }) {
+  const mail = getTransporter();
+  const dollars = Number(amount || 0).toFixed(2);
+  const subject = 'GameStrike.io — your one-time freeplay task';
+  const text = `Hi ${name},
+
+This is your one-time GameStrike.io freeplay task ($${dollars}).
+
+Do not mark this email as spam.
+If it landed in Spam, move it to Primary.
+Do not open this email and screenshot the inside.
+Open your Primary inbox and screenshot the list where this GameStrike.io email is sitting, still visible in the inbox.
+Send that inbox screenshot in GameStrike chat to claim freeplay once.`;
+  if (!mail) {
+    console.log(`[Freeplay email not sent — SMTP missing] To: ${to}`);
+    return { sentViaSmtp: false };
+  }
+  await mail.sendMail({
+    from: from || process.env.SMTP_FROM || `GameStrike.io <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    text,
+  });
+  return { sentViaSmtp: true };
+}

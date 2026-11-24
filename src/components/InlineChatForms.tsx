@@ -49,6 +49,8 @@ interface InlineChatCardProps {
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
   onClaimPromo: (promoTitle: string, code: string) => void;
+  onLoadWallet?: (data: { game: string; amount: number; gameUser: string }) => Promise<string | void>;
+  onSubmitFreeplay?: (screenshot: string) => Promise<void>;
   onSyncCashTap?: (ticketId: string) => void;
 }
 
@@ -69,6 +71,8 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   onSubmitGameId,
   onSubmitIssue,
   onClaimPromo,
+  onLoadWallet,
+  onSubmitFreeplay,
   onSyncCashTap,
 }) => {
   const defaultGame =
@@ -109,6 +113,78 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
 
   const selectedGateway =
     gateways.find((g) => g.id === methodId) || gateways[0];
+
+  if (message.card === 'wallet-load') {
+    return (
+      <form
+        className="inline-card"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!onLoadWallet) return;
+          setFormErr('');
+          setSubmitted(true);
+          try {
+            const note = await onLoadWallet({ game, amount, gameUser });
+            if (note) setFormErr(note);
+          } finally {
+            setSubmitted(false);
+          }
+        }}
+      >
+        <div className="inline-card-title"><span>Load from wallet · ${Number(user?.walletBalance || 0).toFixed(2)}</span></div>
+        <select className="field-input" value={game} onChange={(e) => setGame(e.target.value)}>
+          {games.map((g) => (
+            <option key={g.id} value={g.name}>{g.name}</option>
+          ))}
+        </select>
+        <input className="field-input" placeholder="Game login ID" value={gameUser} onChange={(e) => setGameUser(e.target.value)} />
+        <input className="field-input" type="number" min={1} step="0.5" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} />
+        {formErr && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{formErr}</p>}
+        <button className="btn-primary" type="submit" disabled={submitted}>Load ${amount || 0}</button>
+      </form>
+    );
+  }
+
+  if (message.card === 'freeplay-task') {
+    return (
+      <form
+        className="inline-card"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!onSubmitFreeplay || !receiptUrl) {
+            setFormErr('Upload the Primary inbox screenshot.');
+            return;
+          }
+          setSubmitted(true);
+          try {
+            await onSubmitFreeplay(receiptUrl);
+          } catch (err) {
+            setFormErr((err as Error).message);
+            setSubmitted(false);
+          }
+        }}
+      >
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Screenshot the Primary inbox list. The GameStrike email should be visible there. Do not open it, and do not mark it as spam.
+        </p>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result === 'string') setReceiptUrl(reader.result);
+            };
+            reader.readAsDataURL(file);
+          }}
+        />
+        {formErr && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{formErr}</p>}
+        <button className="btn-primary" type="submit" disabled={submitted}>Submit inbox screenshot</button>
+      </form>
+    );
+  }
 
   if (message.card === 'deposit-form') {
     const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
@@ -974,8 +1050,26 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           {[
-            { title: '100% First Deposit Match', code: 'STRIKE100', desc: 'Double your first CashTap load up to $200.' },
-            { title: '20% Daily Reload Bonus', code: 'RELOAD20', desc: '20% extra on daily deposits of $20+.' },
+            {
+              title: `$${Number(settings.freeplayAmount || 0).toFixed(0)} Freeplay`,
+              code: 'FREEPLAY',
+              desc: 'Once after signup. Screenshot the Primary inbox list, not the opened email.',
+            },
+            {
+              title: `${settings.welcomeBonusPercent}% Welcome`,
+              code: 'WELCOME',
+              desc: 'Added on your first successful deposit.',
+            },
+            {
+              title: `${settings.regularBonusPercent}% Regular`,
+              code: 'REGULAR',
+              desc: 'Added on every deposit after the first.',
+            },
+            {
+              title: `${settings.dailyBonusPercent || 0}% ${settings.dailyBonusLabel || "Today's Bonus"}`,
+              code: 'DAILY',
+              desc: 'Today’s extra bonus. Select this, then deposit.',
+            },
           ].map((offer) => (
             <div
               key={offer.code}

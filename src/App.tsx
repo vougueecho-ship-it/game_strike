@@ -7,6 +7,7 @@ import {
   apiFetch,
   createRealtimeSocket,
   enableLockScreenPush,
+  enableNativePushOnLaunch,
 } from './services/api';
 import {
   ChatMessage,
@@ -19,6 +20,7 @@ import {
   UserProfile,
 } from './types';
 import { PAYMENT_GATEWAYS as DEFAULT_GATEWAYS } from './data/catalog';
+import { paymentMethodName } from './data/catalog';
 
 const STORAGE_USER_KEY = 'gamestrike_user_v1';
 const STORAGE_TOKEN_KEY = 'gamestrike_token_v1';
@@ -132,6 +134,10 @@ export const App: React.FC = () => {
     regularBonusPercent: 20,
     withdrawMultiplier: 3,
     minWithdrawFallback: 20,
+    dailyBonusPercent: 10,
+    dailyBonusLabel: "Today's Bonus",
+    dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
+    freeplayAmount: 5,
   });
 
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
@@ -180,6 +186,14 @@ export const App: React.FC = () => {
   }, [token]);
 
   useEffect(() => {
+    enableNativePushOnLaunch(token)
+      .then((ok) => {
+        if (ok) setPushEnabled(true);
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_MSGS_KEY, JSON.stringify(messages));
   }, [messages]);
 
@@ -225,6 +239,12 @@ export const App: React.FC = () => {
 
     socket.on('chat:mode', (payload: { humanTakeover: boolean }) => {
       setHumanTakeover(Boolean(payload?.humanTakeover));
+    });
+
+    socket.on('wallet:updated', (payload: { walletBalance?: number }) => {
+      if (typeof payload?.walletBalance === 'number') {
+        setUser((prev) => (prev ? { ...prev, walletBalance: payload.walletBalance } : prev));
+      }
     });
 
     socket.on('ticket:created', (raw: any) => {
@@ -435,6 +455,16 @@ export const App: React.FC = () => {
         text: 'Here are the active GameStrike.io promotions available for your account:',
         card: 'bonuses',
       });
+    } else if (action === 'load-game') {
+      pushAgentReply(targetThread, {
+        text: `Your wallet balance is **$${Number(user?.walletBalance || 0).toFixed(2)}**. Enter how much to load. It is sent through the game API and cannot be more than your wallet.`,
+        card: 'wallet-load',
+      });
+    } else if (action === 'freeplay') {
+      pushAgentReply(targetThread, {
+        text: 'Freeplay is once per account. Do not mark the GameStrike email as spam. If it is in Spam, move it to Primary. Do not open the email. Screenshot the Primary inbox where the GameStrike email is sitting in the list, then upload that screenshot here.',
+        card: 'freeplay-task',
+      });
     } else if (action === 'password') {
       pushAgentReply(targetThread, {
         text: 'No problem! Please reply with your **Game Name** and **Username** (e.g. `Juwa 777 - gs_player21`), and our live agent will reset your password within 2 minutes.',
@@ -599,7 +629,14 @@ export const App: React.FC = () => {
         ticket: any;
         message: any;
         session: { id: string; url: string };
-      }>('/api/tickets/deposit', { method: 'POST', body: JSON.stringify(data) }, activeToken);
+      }>('/api/tickets/deposit', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...data,
+          applyDailyBonus: sessionStorage.getItem('gs_bonus_choice') === 'daily',
+        }),
+      }, activeToken);
+      sessionStorage.removeItem('gs_bonus_choice');
 
       return { checkoutUrl: res.session?.url };
     } catch (err: any) {
@@ -609,6 +646,30 @@ export const App: React.FC = () => {
       });
       return { error: errText };
     }
+  };
+
+  const handleLoadWallet = async (data: { game: string; amount: number; gameUser: string }) => {
+    if (!token) return 'Sign in first.';
+    try {
+      const res = await apiFetch<{ walletBalance: number }>(
+        '/api/wallet/load',
+        { method: 'POST', body: JSON.stringify(data) },
+        token
+      );
+      setUser((prev) => (prev ? { ...prev, walletBalance: res.walletBalance } : prev));
+      return '';
+    } catch (err) {
+      return (err as Error).message;
+    }
+  };
+
+  const handleSubmitFreeplay = async (screenshot: string) => {
+    if (!token) return;
+    await apiFetch(
+      '/api/tickets/freeplay',
+      { method: 'POST', body: JSON.stringify({ receiptScreenshotUrl: screenshot }) },
+      token
+    );
   };
 
   const handleSyncCashTap = async (ticketId: string) => {
@@ -821,21 +882,18 @@ export const App: React.FC = () => {
   };
 
   const handleClaimPromo = (title: string, code: string) => {
-    const ticketId = `PRM-${Math.floor(1000 + Math.random() * 9000)}`;
-    setTickets((prev) => [
-      {
-        id: ticketId,
-        type: 'bonus',
-        title,
-        subtitle: `Code: ${code} Applied`,
-        status: 'Verified',
-        createdAt: nowTime(),
-      },
-      ...prev,
-    ]);
+    if (code === 'DAILY') sessionStorage.setItem('gs_bonus_choice', 'daily');
+    else sessionStorage.removeItem('gs_bonus_choice');
+    const tags = gateways
+      .map((gw) => `${paymentMethodName(gw)}${gw.handle ? `: ${gw.handle}` : ''}`)
+      .join('\n');
     pushAgentReply(activeThread, {
-      text: `Promo code **${code}** (${title}) has been tagged to your account! Make your qualifying deposit right here to receive your bonus credits.`,
-      quickReplies: [{ label: '💳 Deposit Now with Bonus', action: 'deposit' }],
+      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after the Primary inbox screenshot is approved\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nManual methods such as Chime show the QR in the deposit card. Download it there, pay, then upload the receipt. Successful payments, including the bonus, go into your wallet. Game loads are taken from that wallet and cannot be more than the balance.`,
+      quickReplies: [
+        { label: 'Deposit now', action: 'deposit' },
+        { label: 'Load a game', action: 'load-game' },
+        ...(code === 'FREEPLAY' ? [{ label: 'Send inbox screenshot', action: 'freeplay' }] : []),
+      ],
     });
   };
 
@@ -873,6 +931,7 @@ export const App: React.FC = () => {
       <GamesLandingPage
         games={games}
         gateways={gateways}
+        settings={settings}
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode((d) => !d)}
         onBackToChat={() => navigate('chat')}
@@ -935,6 +994,8 @@ export const App: React.FC = () => {
       onSubmitGameId={handleSubmitGameId}
       onSubmitIssue={handleSubmitIssue}
       onClaimPromo={handleClaimPromo}
+      onLoadWallet={handleLoadWallet}
+      onSubmitFreeplay={handleSubmitFreeplay}
       onSyncCashTap={handleSyncCashTap}
       onOpenGamesPage={() => navigate('games')}
       onEnablePush={handleEnablePush}

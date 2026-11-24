@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Flame,
   Gamepad2,
-  Gift,
   Home,
   ImagePlus,
   MessageSquare,
@@ -16,7 +15,6 @@ import {
   Search,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   Trophy,
   Wallet,
   X,
@@ -25,12 +23,13 @@ import {
 import { BrandLogo } from './BrandLogo';
 import { AppDownloadModal } from './AppDownloadModal';
 import { AuthSuite } from './AuthSuite';
-import { PROMO_OFFERS, paymentMethodName } from '../data/catalog';
-import { GameItem, PaymentGateway, UserProfile } from '../types';
+import { paymentMethodName } from '../data/catalog';
+import { GameItem, PaymentGateway, PlatformSettings, UserProfile } from '../types';
 
 interface GamesLandingPageProps {
   games: GameItem[];
   gateways: PaymentGateway[];
+  settings: PlatformSettings;
   darkMode: boolean;
   onToggleTheme: () => void;
   onBackToChat: () => void;
@@ -109,6 +108,7 @@ const INITIAL_FEED_ROWS: FeedRow[] = [
 export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   games,
   gateways,
+  settings,
   onBackToChat,
   onRequestGameIdInChat,
   onSubmitDepositFromPage,
@@ -117,7 +117,6 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   isLoggedIn,
   onAuthenticate,
 }) => {
-  const [category, setCategory] = useState<string>('All');
   const [search, setSearch] = useState('');
   const [jackpot, setJackpot] = useState<number>(52840.75);
   const [feedRows, setFeedRows] = useState<FeedRow[]>(INITIAL_FEED_ROWS);
@@ -146,7 +145,16 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
     setAuthOpen(true);
   };
 
-  // Subtle live jackpot counter tick
+  useEffect(() => {
+    const section = sessionStorage.getItem('gs_open_section');
+    if (!section) return;
+    sessionStorage.removeItem('gs_open_section');
+    const jump = () => {
+      document.getElementById(section)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    };
+    requestAnimationFrame(jump);
+    window.setTimeout(jump, 60);
+  }, []);
   useEffect(() => {
     const id = setInterval(() => {
       setJackpot((prev) => Number((prev + Math.random() * 1.45).toFixed(2)));
@@ -167,13 +175,9 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
     return () => clearInterval(id);
   }, [games]);
 
-  const categories = ['All', 'Hot', 'Slots', 'Fish Tables', 'Sweeps'];
-
-  const filteredGames = games.filter((g) => {
-    const matchCategory = category === 'All' || g.category === category;
-    const matchSearch = g.name.toLowerCase().includes(search.toLowerCase());
-    return matchCategory && matchSearch;
-  });
+  const filteredGames = games.filter((g) =>
+    g.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const activeGateway =
     gateways.find((g) => g.id === gatewayId) || gateways[0];
@@ -310,6 +314,34 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
         </div>
       </header>
 
+      <div className="nx-offer-bar" aria-label="Today's offer">
+        <div className="nx-offer-track">
+          {[0, 1].map((copy) => (
+            <div className="nx-offer-set" key={copy}>
+              {[0, 1, 2, 3].map((item) => (
+                <span className="nx-offer-item" key={item}>
+                  <span>
+                    {settings.dailyOfferText?.trim() ||
+                      `${settings.dailyBonusPercent || 0}% ${settings.dailyBonusLabel || "Today's offer"}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      claimPromo(
+                        `${settings.dailyBonusPercent || 0}% ${settings.dailyBonusLabel || "Today's Bonus"}`,
+                        'DAILY'
+                      )
+                    }
+                  >
+                    Claim
+                  </button>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* CINEMATIC FULL-BLEED ARENA HERO */}
       <section className="nx-hero">
         <div className="nx-hero-spotlight" />
@@ -346,7 +378,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
               onClick={openChat}
             >
               <MessageSquare size={18} />
-              <span>Open 24/7 Chat Desk</span>
+              <span>Live Chat</span>
             </button>
             <button
               type="button"
@@ -357,6 +389,46 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
               <Smartphone size={18} />
               <span>Download App (APK / iOS)</span>
             </button>
+          </div>
+
+          <div id="nx-bonuses" className="nx-bonus-rail" aria-label="Live bonuses">
+            {[
+              {
+                id: 'freeplay',
+                code: 'FREEPLAY',
+                kicker: 'Once',
+                value: `$${Number(settings.freeplayAmount || 0).toFixed(0)}`,
+                label: 'Freeplay',
+                title: `$${Number(settings.freeplayAmount || 0).toFixed(0)} Freeplay`,
+              },
+              {
+                id: 'welcome',
+                code: 'WELCOME',
+                kicker: 'First',
+                value: `${settings.welcomeBonusPercent}%`,
+                label: 'Welcome',
+                title: `${settings.welcomeBonusPercent}% Welcome`,
+              },
+              {
+                id: 'regular',
+                code: 'REGULAR',
+                kicker: 'Every',
+                value: `${settings.regularBonusPercent}%`,
+                label: 'Regular',
+                title: `${settings.regularBonusPercent}% Regular`,
+              },
+            ].map((offer) => (
+              <button
+                key={offer.id}
+                type="button"
+                className="nx-bonus-chip"
+                onClick={() => claimPromo(offer.title, offer.code)}
+              >
+                <span>{offer.kicker}</span>
+                <strong>{offer.value}</strong>
+                <em>{offer.label}</em>
+              </button>
+            ))}
           </div>
 
           {/* Live Jackpot & Instant Metrics Strip */}
@@ -440,23 +512,6 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                 />
               </div>
 
-              <div className="nx-cat-row">
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    className={`nx-cat-btn ${category === cat ? 'active' : ''}`}
-                    onClick={() => setCategory(cat)}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="nx-dock-count">
-              <span className="live-dot" style={{ width: 6, height: 6 }} />
-              <span>{filteredGames.length} Official API Games</span>
             </div>
           </div>
 
@@ -655,40 +710,6 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                   </div>
                 </div>
               ))}
-          </div>
-        </section>
-
-        {/* VIP BONUSES */}
-        <section id="nx-bonuses" className="nx-section">
-          <div className="nx-sec-header">
-            <div>
-              <h2>VIP Bonuses &amp; Freeplay</h2>
-              <p>Activate any bonus instantly in your 24/7 GameStrike chat</p>
-            </div>
-          </div>
-
-          <div className="nx-bonus-grid">
-            {PROMO_OFFERS.map((offer) => (
-              <div key={offer.id} className="nx-bonus-card">
-                <div className="nx-bonus-top">
-                  <span className="nx-bonus-badge">
-                    <Sparkles size={12} /> {offer.badge}
-                  </span>
-                  <span className="mono nx-bonus-code">{offer.code}</span>
-                </div>
-                <h3>{offer.title}</h3>
-                <p>{offer.description}</p>
-                <button
-                  type="button"
-                  className="nx-btn-glass"
-                  style={{ width: '100%', marginTop: 'auto' }}
-                  onClick={() => claimPromo(offer.title, offer.code)}
-                >
-                  <Gift size={15} color="#ffd166" />
-                  <span>Claim in Chat</span>
-                </button>
-              </div>
-            ))}
           </div>
         </section>
 

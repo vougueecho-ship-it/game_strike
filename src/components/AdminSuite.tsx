@@ -110,6 +110,11 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     withdrawMultiplier: 3,
     minWithdrawFallback: 20,
     enforceDeviceLimit: true,
+    dailyBonusPercent: 10,
+    dailyBonusLabel: "Today's Bonus",
+    dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
+    freeplayAmount: 5,
+    freeplayFromEmails: '',
   });
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
@@ -787,9 +792,37 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     <div className="mono" style={{ fontSize: '0.76rem', color: typingPlayerId === String(selectedPlayer._id) ? '#4ade80' : 'var(--text-muted)' }}>
                       {typingPlayerId === String(selectedPlayer._id)
                         ? 'Player is typing...'
-                        : `${selectedPlayer.id} • ${selectedPlayer.contact}`}
+                        : `${selectedPlayer.id} • ${selectedPlayer.contact} • Wallet $${Number(selectedPlayer.walletBalance || 0).toFixed(2)}`}
                     </div>
                   </div>
+                  <form
+                    style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!token) return;
+                      const input = (e.currentTarget.elements.namedItem('walletBalance') as HTMLInputElement).value;
+                      const res = await apiFetch<{ user: any }>(
+                        `/api/admin/players/${selectedPlayer._id}/wallet`,
+                        { method: 'PATCH', body: JSON.stringify({ walletBalance: Number(input) }) },
+                        token
+                      );
+                      setPlayers((prev) => prev.map((p) => (String(p._id) === String(res.user._id) ? { ...p, ...res.user } : p)));
+                    }}
+                  >
+                    <input
+                      name="walletBalance"
+                      className="field-input mono"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      defaultValue={Number(selectedPlayer.walletBalance || 0)}
+                      key={`${selectedPlayer._id}-${selectedPlayer.walletBalance || 0}`}
+                      style={{ width: 110, padding: '6px 8px' }}
+                    />
+                    <button type="submit" className="btn-secondary" style={{ padding: '6px 10px', fontSize: '0.74rem' }}>
+                      Set wallet
+                    </button>
+                  </form>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <button
                       type="button"
@@ -1051,8 +1084,9 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                         )}
                         {t.type === 'deposit' && t.totalCredit > 0 && (
                           <span className="gateway-chip mono" style={{ borderColor: 'rgba(34,197,94,0.4)' }}>
-                            Paid ${t.amount} + {t.bonusType} (${t.bonusAmount || 0}) ={' '}
-                            <strong style={{ color: '#4ade80' }}>Load ${t.totalCredit}</strong>
+                            Paid ${t.amount} + {t.bonusType} (${t.bonusAmount || 0})
+                            {t.dailyBonusAmount ? ` + today's bonus ($${t.dailyBonusAmount})` : ''} ={' '}
+                            <strong style={{ color: '#4ade80' }}>Credit wallet ${t.totalCredit}</strong>
                           </span>
                         )}
                       </div>
@@ -1666,6 +1700,58 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       onChange={(e) =>
                         setRules({ ...rules, regularBonusPercent: Number(e.target.value) || 0 })
                       }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Today's bonus % (changes daily)</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={0}
+                      value={rules.dailyBonusPercent || 0}
+                      onChange={(e) =>
+                        setRules({ ...rules, dailyBonusPercent: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Today's bonus name</label>
+                    <input
+                      className="field-input"
+                      value={rules.dailyBonusLabel || ''}
+                      onChange={(e) => setRules({ ...rules, dailyBonusLabel: e.target.value })}
+                    />
+                  </div>
+                  <div className="field-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="field-label">Top marquee text (today's offer)</label>
+                    <input
+                      className="field-input"
+                      maxLength={180}
+                      value={rules.dailyOfferText || ''}
+                      onChange={(e) => setRules({ ...rules, dailyOfferText: e.target.value })}
+                      placeholder="Today's offer is live — extra bonus on your next deposit"
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">One-time freeplay amount ($)</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={0}
+                      value={rules.freeplayAmount || 0}
+                      onChange={(e) =>
+                        setRules({ ...rules, freeplayAmount: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="field-label">Freeplay Hostinger from-emails (one per line, 4 or 5)</label>
+                    <textarea
+                      className="field-input"
+                      rows={4}
+                      value={rules.freeplayFromEmails || ''}
+                      onChange={(e) => setRules({ ...rules, freeplayFromEmails: e.target.value })}
+                      placeholder={'promo1@gamestrike.io\npromo2@gamestrike.io'}
                     />
                   </div>
                   <div className="field-group">

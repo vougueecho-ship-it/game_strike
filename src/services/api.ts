@@ -63,6 +63,19 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+let nativePushHooked = false;
+
+export async function enableNativePushOnLaunch(authToken?: string | null): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  let permStatus = await PushNotifications.checkPermissions();
+  if (permStatus.receive !== 'granted') {
+    permStatus = await PushNotifications.requestPermissions();
+  }
+  if (permStatus.receive !== 'granted' || !authToken) return false;
+  const res = await enableLockScreenPush(authToken);
+  return res.ok;
+}
+
 /**
  * Registers either Native Capacitor Firebase Push Notifications (Android APK / iOS App)
  * OR PWA Service Worker Web Push Lock-Screen Notifications and sends the token/subscription
@@ -74,6 +87,8 @@ export async function enableLockScreenPush(token: string): Promise<{
 }> {
   // 1. Native Android APK / iOS Capacitor App (Firebase FCM via google-services.json)
   if (Capacitor.isNativePlatform()) {
+    if (nativePushHooked) return { ok: true };
+    nativePushHooked = true;
     try {
       let permStatus = await PushNotifications.checkPermissions();
       if (permStatus.receive === 'prompt') {

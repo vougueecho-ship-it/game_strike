@@ -11,6 +11,11 @@ export interface PlatformSettings {
   withdrawMultiplier: number;
   minWithdrawFallback: number;
   enforceDeviceLimit?: boolean;
+  dailyBonusPercent?: number;
+  dailyBonusLabel?: string;
+  dailyOfferText?: string;
+  freeplayAmount?: number;
+  freeplayFromEmails?: string;
 }
 
 export interface UserProfile {
@@ -31,6 +36,8 @@ export interface UserProfile {
   referredBy?: string;
   referralCount?: number;
   referralBonusEarned?: number;
+  walletBalance?: number;
+  freeplayClaimed?: boolean;
 }
 
 export interface GameItem {
@@ -96,7 +103,9 @@ export type InteractiveCardType =
   | 'payment-methods'
   | 'bonuses'
   | 'issue-form'
-  | 'ticket-receipt';
+  | 'ticket-receipt'
+  | 'wallet-load'
+  | 'freeplay-task';
 
 export interface QuickReply {
   label: string;

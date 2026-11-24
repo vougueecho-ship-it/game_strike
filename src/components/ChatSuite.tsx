@@ -84,6 +84,8 @@ interface ChatSuiteProps {
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
   onClaimPromo: (title: string, code: string) => void;
+  onLoadWallet?: (data: { game: string; amount: number; gameUser: string }) => Promise<string | void>;
+  onSubmitFreeplay?: (screenshot: string) => Promise<void>;
   onSyncCashTap?: (ticketId: string) => void;
   onOpenGamesPage: () => void;
   onEnablePush?: () => void;
@@ -115,6 +117,8 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   onSubmitGameId,
   onSubmitIssue,
   onClaimPromo,
+  onLoadWallet,
+  onSubmitFreeplay,
   onSyncCashTap,
   onOpenGamesPage,
   onEnablePush,
@@ -429,9 +433,11 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 <span>
                   {isTyping
                     ? 'Live Agent is typing...'
-                    : humanTakeover
-                    ? 'Live Human Agent Connected • Real-Time Chat'
-                    : 'Online • Instant Automated + Live Desk'}
+                    : `Wallet $${Number(user.walletBalance || 0).toFixed(2)} • ${
+                        humanTakeover
+                          ? 'Live Human Agent Connected'
+                          : 'Online'
+                      }`}
                 </span>
               </div>
             </div>
@@ -667,6 +673,8 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                         onSubmitGameId={onSubmitGameId}
                         onSubmitIssue={onSubmitIssue}
                         onClaimPromo={onClaimPromo}
+                        onLoadWallet={onLoadWallet}
+                        onSubmitFreeplay={onSubmitFreeplay}
                         onSyncCashTap={onSyncCashTap}
                       />
                     )}
@@ -827,7 +835,10 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
           <button
             type="button"
             className="chat-bottom-item"
-            onClick={onOpenGamesPage}
+            onClick={() => {
+              sessionStorage.setItem('gs_open_section', 'nx-games');
+              onOpenGamesPage();
+            }}
           >
             <Gamepad2 size={18} color="#ffd166" />
             <span>Games</span>

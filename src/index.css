@@ -3023,7 +3023,116 @@ a {
   justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 42px;
+  margin-bottom: 22px;
+}
+
+.nx-offer-bar {
+  position: relative;
+  z-index: 5;
+  overflow: hidden;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(90deg, #1a1208, #3a160f 50%, #1a1208);
+  border-bottom: 1px solid rgba(255, 209, 102, 0.28);
+}
+
+.nx-offer-track {
+  display: flex;
+  width: max-content;
+  animation: nxOfferMarquee 22s linear infinite;
+}
+
+.nx-offer-set {
+  display: flex;
+  align-items: center;
+}
+
+.nx-offer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 42px;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffe7b0;
+}
+
+.nx-offer-item button {
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: #ff1f4b;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+@keyframes nxOfferMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.nx-bonus-rail {
+  width: min(760px, 100%);
+  margin: 0 auto 22px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nx-bonus-chip {
+  appearance: none;
+  border: 1px solid rgba(255, 209, 102, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 209, 102, 0.12), rgba(15, 16, 22, 0.92));
+  color: #fff;
+  border-radius: 14px;
+  padding: 12px 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.nx-bonus-chip:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 209, 102, 0.7);
+}
+
+.nx-bonus-chip span {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffd166;
+  white-space: nowrap;
+}
+
+.nx-bonus-chip strong {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.nx-bonus-chip em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: #c5cad8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#nx-games {
+  scroll-margin-top: 84px;
 }
 
 .nx-jackpot-bar {
@@ -3551,6 +3660,49 @@ a {
   .nx-bonus-grid {
     grid-template-columns: 1fr;
   }
+  .nx-bonus-rail {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+    margin-bottom: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nx-bonus-rail::-webkit-scrollbar {
+    display: none;
+  }
+  .nx-bonus-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 4px 7px;
+    border-radius: 12px;
+  }
+  .nx-bonus-chip span {
+    letter-spacing: 0.04em;
+    font-size: 0.58rem;
+  }
+  .nx-bonus-chip strong {
+    font-size: 1.05rem;
+  }
+  .nx-bonus-chip em {
+    font-size: 0.68rem;
+  }
+  .nx-hero-badge,
+  .nx-hero-sub,
+  .nx-jackpot-bar,
+  .nx-hero-cta-group .nx-btn-lg:nth-child(3) {
+    display: none;
+  }
+  .nx-hero-title {
+    font-size: 1.55rem;
+    margin-bottom: 12px;
+  }
+  .nx-hero-cta-group {
+    margin-bottom: 12px;
+  }
+  .nx-main {
+    padding-top: 16px;
+  }
   .nx-feed-head,
   .nx-feed-row {
     grid-template-columns: 1fr 1.1fr 0.9fr;
@@ -3562,7 +3714,29 @@ a {
     display: none;
   }
   .nx-hero-inner {
-    padding: 46px 16px 38px;
+    padding: 14px 14px 8px;
+  }
+  .nx-hero-cta-group {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .nx-hero-cta-group .nx-btn-lg {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 8px;
+    font-size: 0.78rem;
+  }
+  .nx-dock {
+    padding: 8px;
+    margin-bottom: 12px;
+  }
+  .nx-dock-left,
+  .nx-search {
+    width: 100%;
+    min-width: 0;
+  }
+  .nx-section {
+    margin-bottom: 28px;
   }
   .nx-jackpot-bar {
     gap: 16px;
@@ -3586,7 +3760,7 @@ a {
   }
   .nx-game-media img,
   .nx-game-fallback {
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 1 / 1;
     height: auto;
   }
   .nx-game-vignette {

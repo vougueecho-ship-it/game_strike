@@ -27,7 +27,7 @@ import {
   verifyCashTapSignature,
 } from './services/cashtapService.js';
 import { createWithdrawalPayout } from './services/paymentGatewayService.js';
-import { sendOtpEmail } from './services/emailService.js';
+import { sendFreeplayTaskEmail, sendOtpEmail } from './services/emailService.js';
 
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'gamestrike_secret_2026';
@@ -92,9 +92,36 @@ async function maybeAwardReferralBonus(playerRecord, depositAmount) {
   });
 }
 
-// =========================================================
-// AUTO-FULFILLMENT HELPER (CALLED BY CASHTAP WEBHOOK OR SYNC)
-// =========================================================
+async function creditPlayerWallet(userId, amount) {
+  const player = await db.findUserById(userId);
+  if (!player) return null;
+  const next = Number((Number(player.walletBalance || 0) + Number(amount || 0)).toFixed(2));
+  await db.updateUser(player._id, { walletBalance: Math.max(0, next) });
+  return next;
+}
+
+async function creditDepositToWallet(ticket) {
+  if (!ticket || ticket.walletCredited) return ticket;
+  const credit = Number(ticket.totalCredit || ticket.amount || 0);
+  if (credit <= 0) return ticket;
+  const balance = await creditPlayerWallet(ticket.userId, credit);
+  const updated = await db.updateTicketStatus(ticket.ticketId, ticket.status || 'Completed', ticket.adminNote || '', {
+    walletCredited: true,
+  });
+  const player = await db.findUserById(ticket.userId);
+  if (player) {
+    const msg = await db.createMessage({
+      userId: String(player._id),
+      threadId: 'concierge',
+      sender: 'agent',
+      agentName: 'GameStrike Wallet',
+      text: `$${credit.toFixed(2)} is in your wallet (deposit + bonus). Wallet balance: **$${Number(balance || 0).toFixed(2)}**. Load a game from this balance whenever you want. You cannot load more than your wallet.`,
+    });
+    io.to(`user:${player._id}`).emit('chat:message', msg);
+    io.to(`user:${player._id}`).emit('wallet:updated', { walletBalance: balance });
+  }
+  return updated;
+}
 async function fulfillCashTapSession(session, source = 'webhook') {
   const ticketId = session?.metadata?.ticket_id;
   const ticket =
@@ -102,7 +129,10 @@ async function fulfillCashTapSession(session, source = 'webhook') {
     (session?.id ? await db.findTicketByExternalRef(session.id) : null);
 
   if (!ticket) return null;
-  if (ticket.status === 'Completed') return ticket;
+  if (ticket.status === 'Completed') {
+    if (!ticket.walletCredited) await creditDepositToWallet(ticket);
+    return ticket;
+  }
 
   if (session.status === 'completed') {
     const received = Number(session.amount_received ?? session.amount ?? ticket.amount);
@@ -111,10 +141,10 @@ async function fulfillCashTapSession(session, source = 'webhook') {
     const updated = await db.updateTicketStatus(
       ticket.ticketId,
       'Completed',
-      `Auto-paid via CashTap (${session.payment_method || 'checkout'}) • Paid $${received.toFixed(2)} + ${ticket.bonusType || 'Bonus'} $${Number(ticket.bonusAmount || 0).toFixed(2)} = Total Load $${totalToLoad.toFixed(2)} [${source}]`
+      `Auto-paid via CashTap (${session.payment_method || 'checkout'}) • Paid $${received.toFixed(2)} + ${ticket.bonusType || 'Bonus'} $${Number(ticket.bonusAmount || 0).toFixed(2)} = Wallet credit $${totalToLoad.toFixed(2)} [${source}]`,
+      { walletCredited: false }
     );
 
-    // Update player's deposit history for Welcome -> Regular bonus & Withdraw Multiplier rules
     const playerRecord = await db.findUserById(updated.userId);
     if (playerRecord) {
       await db.updateUser(playerRecord._id, {
@@ -126,24 +156,14 @@ async function fulfillCashTapSession(session, source = 'webhook') {
       await maybeAwardReferralBonus(playerRecord, received);
     }
 
-    // Automatically load Total Credit (Deposit + Bonus) via Game API if connected
-    if (updated?.game) {
-      const gameDoc = await db.findGameByNameOrSlug(updated.game);
-      if (gameDoc?.apiConfig?.isConnected) {
-        try {
-          await loadGameCredits(gameDoc, updated.gameUser || updated.playerName, totalToLoad);
-        } catch (err) {
-          console.warn('[AutoLoad] Game API load pending admin:', err.message);
-        }
-      }
-    }
+    await creditDepositToWallet(updated);
 
     const msg = await db.createMessage({
       userId: String(updated.userId),
       threadId: 'concierge',
       sender: 'agent',
       agentName: 'GameStrike Auto-Cashier',
-      text: `Payment Confirmed! ✅ Ticket ${updated.ticketId}\nPaid: $${received.toFixed(2)} + ${ticket.bonusType || 'Bonus'} ($${Number(ticket.bonusAmount || 0).toFixed(2)}) = **$${totalToLoad.toFixed(2)} Total Credit** loaded to ${updated.game || 'your GameStrike Wallet'}${updated.gameUser ? ` (${updated.gameUser})` : ''}.`,
+      text: `Payment Confirmed! ✅ Ticket ${updated.ticketId}\nPaid: $${received.toFixed(2)} + bonus $${Number(ticket.bonusAmount || 0).toFixed(2)} = **$${totalToLoad.toFixed(2)} added to your GameStrike wallet**.`,
     });
 
     io.to(`user:${updated.userId}`).emit('ticket:updated', updated);
@@ -264,6 +284,8 @@ function sanitizeUser(u) {
     referredBy: u.referredBy || '',
     referralCount: Number(u.referralCount || 0),
     referralBonusEarned: Number(u.referralBonusEarned || 0),
+    walletBalance: Number(u.walletBalance || 0),
+    freeplayClaimed: Boolean(u.freeplayClaimed),
     joinedAt: u.createdAt
       ? new Date(u.createdAt).toLocaleDateString()
       : new Date().toLocaleDateString(),
@@ -399,6 +421,11 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       withdrawMultiplier,
       minWithdrawFallback,
       enforceDeviceLimit,
+      dailyBonusPercent,
+      dailyBonusLabel,
+      dailyOfferText,
+      freeplayAmount,
+      freeplayFromEmails,
     } = req.body;
     const saved = await db.updateSettings({
       welcomeBonusPercent: Math.max(0, Number(welcomeBonusPercent ?? 100)),
@@ -408,7 +435,12 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       freeplayMaxWithdraw: Math.max(1, Number(freeplayMaxWithdraw ?? 100)),
       withdrawMultiplier: Math.max(1, Number(withdrawMultiplier ?? 3)),
       minWithdrawFallback: Math.max(1, Number(minWithdrawFallback ?? 20)),
-      enforceDeviceLimit: enforceDeviceLimit !== undefined ? Boolean(enforceDeviceLimit) : true,
+      enforceDeviceLimit: enforceDeviceLimit !== false,
+      dailyBonusPercent: Math.max(0, Number(dailyBonusPercent ?? 0)),
+      dailyBonusLabel: String(dailyBonusLabel || "Today's Bonus").slice(0, 80),
+      dailyOfferText: String(dailyOfferText || '').slice(0, 180),
+      freeplayAmount: Math.max(0, Number(freeplayAmount ?? 0)),
+      freeplayFromEmails: String(freeplayFromEmails || '').slice(0, 1000),
     });
     res.json(saved);
   } catch (err) {
@@ -477,6 +509,21 @@ app.post('/api/auth/register', async (req, res) => {
     });
 
     io.to('admins').emit('admin:new-player', sanitizeUser(user));
+
+    const platformSettings = await db.getSettings();
+    const fromList = String(platformSettings.freeplayFromEmails || '')
+      .split(/[\n,;]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.includes('@'));
+    const fromAddress = fromList.length
+      ? fromList[Math.abs([...String(user._id)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)) % fromList.length]
+      : '';
+    sendFreeplayTaskEmail({
+      to: user.contact,
+      name: user.name,
+      from: fromAddress,
+      amount: Number(platformSettings.freeplayAmount || 0),
+    }).catch((err) => console.warn('[Freeplay email]', err.message));
 
     res.status(201).json({
       token: signToken(user),
@@ -720,6 +767,21 @@ app.post('/api/auth/google', async (req, res) => {
       });
 
       io.to('admins').emit('admin:new-player', sanitizeUser(user));
+
+      const platformSettings = await db.getSettings();
+      const fromList = String(platformSettings.freeplayFromEmails || '')
+        .split(/[\n,;]+/)
+        .map((item) => item.trim())
+        .filter((item) => item.includes('@'));
+      const fromAddress = fromList.length
+        ? fromList[Math.abs([...String(user._id)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)) % fromList.length]
+        : '';
+      sendFreeplayTaskEmail({
+        to: user.contact,
+        name: user.name,
+        from: fromAddress,
+        amount: Number(platformSettings.freeplayAmount || 0),
+      }).catch((err) => console.warn('[Freeplay email]', err.message));
 
       const createdPayload = {
         token: signToken(user),
@@ -1015,7 +1077,9 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
       ? Number(settings.welcomeBonusPercent || 0)
       : Number(settings.regularBonusPercent || 0);
     const bonusAmount = Number(((numericAmount * bonusPercent) / 100).toFixed(2));
-    const totalCredit = Number((numericAmount + bonusAmount).toFixed(2));
+    const dailyPercent = req.body.applyDailyBonus ? Number(settings.dailyBonusPercent || 0) : 0;
+    const dailyBonusAmount = Number(((numericAmount * dailyPercent) / 100).toFixed(2));
+    const totalCredit = Number((numericAmount + bonusAmount + dailyBonusAmount).toFixed(2));
 
     // Automatically attach player's saved Game Login ID for this game so Admin knows exact account!
     const userTickets = await db.listTickets(req.auth.id);
@@ -1049,6 +1113,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
         bonusType,
         bonusPercent,
         bonusAmount,
+        dailyBonusAmount,
         totalCredit,
         game,
         gameUser: resolvedGameUser,
@@ -1129,6 +1194,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
       bonusType,
       bonusPercent,
       bonusAmount,
+      dailyBonusAmount,
       totalCredit,
       game,
       gameUser: resolvedGameUser,
@@ -1185,6 +1251,83 @@ app.get('/api/tickets/:ticketId/sync', requireAuth, async (req, res) => {
 });
 
 // MANUAL WITHDRAWAL (2 MANDATORY SCREENSHOTS + ADMIN-ALLOWED METHODS + LAST DEPOSIT*MULTIPLIER RULE)
+app.post('/api/wallet/load', requireAuth, async (req, res) => {
+  try {
+    const amount = Number(req.body.amount);
+    const gameName = String(req.body.game || '').trim();
+    const gameUser = String(req.body.gameUser || '').trim();
+    if (!gameName || !amount || amount <= 0) {
+      return res.status(400).json({ error: 'Choose a game and an amount.' });
+    }
+    const user = await db.findUserById(req.auth.id);
+    const balance = Number(user?.walletBalance || 0);
+    if (amount > balance) {
+      return res.status(400).json({ error: `Wallet balance is $${balance.toFixed(2)}. You cannot load more than that.` });
+    }
+    const gameDoc = await db.findGameByNameOrSlug(gameName);
+    if (!gameDoc?.apiConfig?.isConnected) {
+      return res.status(400).json({ error: 'That game is not connected for automatic load yet.' });
+    }
+    await loadGameCredits(gameDoc, gameUser || user.name, amount);
+    const next = Number((balance - amount).toFixed(2));
+    await db.updateUser(user._id, { walletBalance: next });
+    const msg = await db.createMessage({
+      userId: String(user._id),
+      threadId: 'concierge',
+      sender: 'agent',
+      agentName: 'GameStrike Wallet',
+      text: `Loaded $${amount.toFixed(2)} to ${gameName}. Wallet balance left: **$${next.toFixed(2)}**.`,
+    });
+    io.to(`user:${user._id}`).emit('chat:message', msg);
+    res.json({ ok: true, walletBalance: next });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tickets/freeplay', requireAuth, async (req, res) => {
+  try {
+    const user = await db.findUserById(req.auth.id);
+    if (user?.freeplayClaimed) {
+      return res.status(400).json({ error: 'Freeplay was already claimed on this account.' });
+    }
+    if (!req.body.receiptScreenshotUrl) {
+      return res.status(400).json({ error: 'Upload the Primary inbox screenshot first.' });
+    }
+    const settings = await db.getSettings();
+    const ticket = await db.createTicket({
+      ticketId: `FP-${Math.floor(1000 + Math.random() * 9000)}`,
+      userId: String(req.auth.id),
+      playerName: user?.name || 'Player',
+      type: 'freeplay',
+      title: `Freeplay inbox check $${Number(settings.freeplayAmount || 0).toFixed(2)}`,
+      subtitle: 'Primary inbox screenshot — credit this freeplay once after approval',
+      amount: Number(settings.freeplayAmount || 0),
+      totalCredit: Number(settings.freeplayAmount || 0),
+      receiptScreenshotUrl: req.body.receiptScreenshotUrl,
+      status: 'Processing',
+    });
+    io.to('admins').emit('ticket:created', ticket);
+    res.status(201).json({ ticket });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/players/:id/wallet', requireAdmin, async (req, res) => {
+  try {
+    const balance = Number(req.body.walletBalance);
+    if (!Number.isFinite(balance) || balance < 0) {
+      return res.status(400).json({ error: 'Enter a wallet balance of 0 or more.' });
+    }
+    const updated = await db.updateUser(req.params.id, { walletBalance: Number(balance.toFixed(2)) });
+    if (!updated) return res.status(404).json({ error: 'Player not found' });
+    res.json({ user: sanitizeUser(updated) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tickets/withdraw', requireAuth, async (req, res) => {
   try {
     const {
@@ -1564,7 +1707,7 @@ app.patch('/api/admin/tickets/:ticketId', requireAdmin, async (req, res) => {
     if (status === 'Completed' && updated.type === 'deposit') {
       const playerRec = await db.findUserById(updated.userId);
       const totalToLoad = Number(updated.totalCredit || updated.amount || 0);
-      if (playerRec) {
+      if (playerRec && !updated.walletCredited) {
         await db.updateUser(playerRec._id, {
           completedDepositsCount: Number(playerRec.completedDepositsCount || 0) + 1,
           lastDepositAmount: Number(updated.amount || 0),
@@ -1572,16 +1715,23 @@ app.patch('/api/admin/tickets/:ticketId', requireAdmin, async (req, res) => {
           lastTotalLoad: totalToLoad,
         });
         await maybeAwardReferralBonus(playerRec, Number(updated.amount || 0));
+        await creditDepositToWallet({ ...updated, status: 'Completed' });
       }
-      if (updated.game && totalToLoad > 0) {
-        const gameDoc = await db.findGameByNameOrSlug(updated.game);
-        if (gameDoc?.apiConfig?.isConnected) {
-          try {
-            await loadGameCredits(gameDoc, updated.gameUser || updated.playerName, totalToLoad);
-          } catch (err) {
-            console.warn('[AdminApprove] Game API load skipped:', err.message);
-          }
-        }
+    } else if (status === 'Completed' && updated.type === 'freeplay') {
+      const playerRec = await db.findUserById(updated.userId);
+      const settings = await db.getSettings();
+      const amount = Number(settings.freeplayAmount || 0);
+      if (playerRec && !playerRec.freeplayClaimed && amount > 0) {
+        const balance = await creditPlayerWallet(playerRec._id, amount);
+        await db.updateUser(playerRec._id, { freeplayClaimed: true });
+        const msg = await db.createMessage({
+          userId: String(playerRec._id),
+          threadId: 'concierge',
+          sender: 'agent',
+          agentName: 'GameStrike Wallet',
+          text: `Freeplay approved. $${amount.toFixed(2)} was added once to your wallet. Balance: **$${Number(balance || 0).toFixed(2)}**.`,
+        });
+        io.to(`user:${playerRec._id}`).emit('chat:message', msg);
       }
     } else if (status === 'Completed' && updated.type === 'withdraw' && updated.game && updated.amount) {
       const gameDoc = await db.findGameByNameOrSlug(updated.game);
