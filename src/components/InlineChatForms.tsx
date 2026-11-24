@@ -435,13 +435,26 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
     const activeWdGw =
       withdrawGateways.find((g) => g.id === methodId) || withdrawGateways[0];
 
-    const lastLoad =
-      Number(user?.lastTotalLoad || 0) ||
-      Number(user?.lastDepositAmount || 0) + Number(user?.lastBonusAmount || 0);
+    const loadRows = tickets.filter(
+      (ticket) =>
+        ticket.type === 'deposit' &&
+        (ticket.status === 'Completed' || ticket.status === 'Verified') &&
+        String(ticket.game || '').toLowerCase() === String(game || '').toLowerCase()
+    );
+    const loaded = loadRows.reduce((sum, ticket) => sum + Number(ticket.amount || 0), 0);
+    const credited = loadRows.reduce((sum, ticket) => {
+      const total = Number(ticket.totalCredit || 0);
+      const withBonus = Number(ticket.amount || 0) + Number(ticket.bonusAmount || 0);
+      return sum + (total > 0 ? total : withBonus);
+    }, 0);
+    const bonusAdded = Math.max(0, credited - loaded);
+    const multiplier = Number(settings.withdrawMultiplier || 3);
     const minWd =
-      lastLoad > 0
-        ? Number((lastLoad * Number(settings.withdrawMultiplier || 3)).toFixed(2))
+      credited > 0
+        ? Number((credited * multiplier).toFixed(2))
         : Number(settings.minWithdrawFallback || 20);
+    const typedAmount = Number(amount) || 0;
+    const stillNeeded = Number(Math.max(0, minWd - typedAmount).toFixed(2));
 
     const savedGameCred = tickets.find(
       (t) =>
@@ -462,7 +475,9 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
         </div>
 
         <div className="ticket-mini" style={{ marginBottom: 10, padding: '8px 10px', fontSize: '0.75rem', color: '#ffd166' }}>
-          Rule: Minimum cashout is <strong>${minWd}</strong> ({settings.withdrawMultiplier}x of last load + bonus{lastLoad > 0 ? `: $${lastLoad}` : ''}). Both screenshots are required.
+          {credited > 0
+            ? `You loaded $${loaded.toFixed(2)} on ${game}. The bonus added $${bonusAdded.toFixed(2)}, so that is $${credited.toFixed(2)}. At ${multiplier}x, your minimum cashout is $${minWd.toFixed(2)}.`
+            : `No completed load on ${game} yet. Minimum cashout is $${minWd.toFixed(2)}.`}
         </div>
 
         <div className="field-group" style={{ marginBottom: 9 }}>
@@ -505,11 +520,16 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               className="field-input mono"
               style={{ padding: '8px 10px', fontSize: '0.84rem' }}
               type="number"
-              min={minWd}
-              value={amount < minWd ? minWd : amount}
-              onChange={(e) => setAmount(Number(e.target.value) || minWd)}
+              min={0}
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value) || 0)}
               disabled={submitted}
             />
+            {stillNeeded > 0 && (
+              <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#ffd166' }}>
+                You still need ${stillNeeded.toFixed(2)} more, then you can cash out.
+              </p>
+            )}
           </div>
           <div className="field-group" style={{ marginBottom: 0 }}>
             <label className="field-label">Payout Method</label>
@@ -584,7 +604,11 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
           disabled={submitted}
           onClick={() => {
-            const finalAmt = amount < minWd ? minWd : amount;
+            const finalAmt = Number(amount) || 0;
+            if (finalAmt < minWd) {
+              setFormErr(`You still need $${stillNeeded.toFixed(2)} more, then you can cash out.`);
+              return;
+            }
             if (!effectiveGameUser.trim()) {
               setFormErr('Please enter your Game Username / ID.');
               return;
@@ -606,7 +630,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             });
           }}
         >
-          {submitted ? 'Cashout Submitted ✓' : `Request $${amount < minWd ? minWd : amount} Cashout`}
+          {submitted ? 'Cashout Submitted ✓' : `Request $${typedAmount.toFixed(2)} Cashout`}
         </button>
       </div>
     );

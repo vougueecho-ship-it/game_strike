@@ -12,7 +12,7 @@ import {
   initPushService,
   sendPushToUser,
 } from './services/pushService.js';
-import { buildSupportReply } from './services/conciergeService.js';
+import { buildSupportReply, cashoutRule } from './services/conciergeService.js';
 import {
   createGameAccount,
   forceGamePlayerOffline,
@@ -938,15 +938,16 @@ async function replyAsSupport(user, saved) {
   if (!user) return;
   io.to(`user:${user._id}`).emit('chat:typing', { sender: 'agent', isTyping: true });
   try {
-    const [settings, games, gateways, tickets, history] = await Promise.all([
+    const [settings, games, gateways, tickets, history, referralsJoined] = await Promise.all([
       db.getSettings(),
       db.listGames(),
       db.listGateways(),
       db.listTickets(user._id),
       db.listMessagesByUser(user._id),
+      db.countUsersReferredBy(user.playerCode),
     ]);
     const reply = await buildSupportReply({
-      user,
+      user: { ...user, referralsJoined },
       message: saved,
       settings,
       games,
@@ -1479,17 +1480,21 @@ app.post('/api/tickets/withdraw', requireAuth, async (req, res) => {
     }
 
     const numericAmount = Number(amount);
-    const lastLoad =
-      Number(user?.lastTotalLoad || 0) ||
-      Number(user?.lastDepositAmount || 0) + Number(user?.lastBonusAmount || 0);
-    const minRequired =
-      lastLoad > 0
-        ? Number((lastLoad * Number(settings.withdrawMultiplier || 3)).toFixed(2))
-        : Number(settings.minWithdrawFallback || 20);
+    const playerTickets = await db.listTickets(req.auth.id);
+    const rule = cashoutRule(
+      playerTickets,
+      game,
+      settings.withdrawMultiplier,
+      settings.minWithdrawFallback
+    );
+    const minRequired = rule.minimum;
 
     if (!numericAmount || numericAmount < minRequired) {
+      const still = Number((minRequired - Number(numericAmount || 0)).toFixed(2));
       return res.status(400).json({
-        error: `Minimum withdrawal is $${minRequired.toFixed(2)} (${settings.withdrawMultiplier}x of your last $${lastLoad.toFixed(2)} deposit + bonus).`,
+        error: rule.hasLoad
+          ? `Your minimum cashout on ${game} is $${minRequired.toFixed(2)} (${rule.multiplier}x of $${rule.total.toFixed(2)}). You still need $${still.toFixed(2)} more, then you can cash out.`
+          : `Your minimum cashout is $${minRequired.toFixed(2)}. You still need $${still.toFixed(2)} more, then you can cash out.`,
       });
     }
 

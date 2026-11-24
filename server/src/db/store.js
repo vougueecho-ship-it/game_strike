@@ -411,6 +411,12 @@ export const db = {
     if (useMongo) return User.findOne({ playerCode: clean }).lean();
     return localState.users.find((u) => String(u.playerCode || '').toUpperCase() === clean) || null;
   },
+  async countUsersReferredBy(playerCode) {
+    const clean = String(playerCode || '').trim().toUpperCase();
+    if (!clean) return 0;
+    if (useMongo) return User.countDocuments({ referredBy: clean });
+    return localState.users.filter((u) => String(u.referredBy || '').toUpperCase() === clean).length;
+  },
   async listPlayers() {
     if (useMongo) return User.find({ role: 'player' }).sort({ updatedAt: -1 }).lean();
     return localState.users.filter((u) => u.role === 'player');

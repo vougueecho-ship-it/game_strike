@@ -71,6 +71,8 @@ function mapServerTicket(t: any): TicketItem {
     title: t.title,
     subtitle: t.subtitle,
     amount: t.amount,
+    bonusAmount: t.bonusAmount,
+    totalCredit: t.totalCredit,
     game: t.game,
     gameUser: t.gameUser,
     gamePassword: t.gamePassword,
