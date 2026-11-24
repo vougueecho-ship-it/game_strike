@@ -40,6 +40,7 @@ interface GamesLandingPageProps {
     method: string;
     handle: string;
     receiptScreenshotUrl?: string;
+    senderTag?: string;
   }) => Promise<{ checkoutUrl?: string; error?: string } | void>;
   onSubmitWithdrawFromPage: (data: {
     game: string;
@@ -135,6 +136,7 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   const [payoutTag, setPayoutTag] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState('');
+  const [senderTag, setSenderTag] = useState('');
   const [copiedTag, setCopiedTag] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -229,12 +231,20 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
 
     try {
       if (walletTab === 'deposit') {
+        const manual =
+          activeGateway && !['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(activeGateway.id);
+        if (manual && (!receiptUrl || !senderTag.trim())) {
+          setErrorMsg('Add your payment tag and the receipt screenshot.');
+          setSubmitting(false);
+          return;
+        }
         const res = await onSubmitDepositFromPage({
           game: games.length > 0 ? selectedGame : 'GameStrike Wallet',
           amount: Math.max(0.5, amount),
           method: activeGateway?.id || 'cashtap',
           handle: activeGateway?.handle || 'pay.cashtap.cash',
           receiptScreenshotUrl: receiptUrl || undefined,
+          senderTag: senderTag.trim(),
         });
         if (res && res.error) {
           setErrorMsg(res.error);
@@ -1044,6 +1054,17 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                       </div>
                     )}
 
+                    <div style={{ marginTop: 10 }}>
+                      <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                        Your payment tag (the account you paid from)
+                      </label>
+                      <input
+                        className="field-input mono"
+                        placeholder="e.g. $yourchime or your name"
+                        value={senderTag}
+                        onChange={(e) => setSenderTag(e.target.value)}
+                      />
+                    </div>
                     {/* Receipt Screenshot Upload */}
                     <div style={{ marginTop: 10 }}>
                       <label style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>

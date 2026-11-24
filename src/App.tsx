@@ -617,6 +617,7 @@ export const App: React.FC = () => {
     method: string;
     handle: string;
     receiptScreenshotUrl?: string;
+    senderTag?: string;
   }): Promise<{ checkoutUrl?: string; error?: string } | void> => {
     const activeToken = token;
     if (!activeToken) {

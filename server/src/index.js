@@ -1059,6 +1059,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
       amount,
       method = 'cashtap',
       receiptScreenshotUrl = '',
+      senderTag = '',
     } = req.body;
     const numericAmount = Number(amount);
     if (!numericAmount || numericAmount < 0.5) {
@@ -1101,6 +1102,12 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
           error: `Please upload your ${gw?.name || method} payment receipt screenshot before submitting.`,
         });
       }
+      const playerTag = String(senderTag || '').trim();
+      if (!playerTag) {
+        return res.status(400).json({
+          error: 'Enter the payment tag you sent the money from.',
+        });
+      }
 
       const ticket = await db.createTicket({
         ticketId,
@@ -1108,7 +1115,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
         playerName: user?.name || 'Player',
         type: 'deposit',
         title: `Manual Deposit $${numericAmount.toFixed(2)} → ${game}`,
-        subtitle: `${gw?.name || method} • +${bonusPercent}% ${bonusType} ($${bonusAmount.toFixed(2)}) = Total Load $${totalCredit.toFixed(2)}${resolvedGameUser ? ` • ID: ${resolvedGameUser}` : ''}`,
+        subtitle: `${gw?.name || method} • Player tag: ${playerTag} • +${bonusPercent}% ${bonusType} ($${bonusAmount.toFixed(2)}) = Credit $${totalCredit.toFixed(2)}`,
         amount: numericAmount,
         bonusType,
         bonusPercent,
@@ -1119,6 +1126,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
         gameUser: resolvedGameUser,
         method: gw?.name || method,
         handle: gw?.handle || '',
+        senderTag: playerTag,
         isManualGateway: true,
         receiptScreenshotUrl,
         status: 'Processing',
@@ -1130,7 +1138,7 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
         threadId: 'concierge',
         sender: 'agent',
         agentName: 'GameStrike Cashier Desk',
-        text: `Manual Deposit Ticket ${ticketId} received! 🧾\nDeposit: $${numericAmount.toFixed(2)} + **${bonusType} (${bonusPercent}% = $${bonusAmount.toFixed(2)})** = **$${totalCredit.toFixed(2)} Total Credit** for ${game}${resolvedGameUser ? ` (${resolvedGameUser})` : ''}.\n\nOur Admin is verifying your payment screenshot now.`,
+        text: `Manual Deposit Ticket ${ticketId} received! 🧾\nDeposit: $${numericAmount.toFixed(2)} + **${bonusType} (${bonusPercent}% = $${bonusAmount.toFixed(2)})** = **$${totalCredit.toFixed(2)}** for ${game}.\nYour payment tag: \`${playerTag}\`.\n\nOur Admin is verifying your payment screenshot now.`,
         attachmentUrl: receiptScreenshotUrl,
         attachmentName: `${gw?.name || method} Payment Receipt`,
         card: 'ticket-receipt',

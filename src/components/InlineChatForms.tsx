@@ -36,6 +36,7 @@ interface InlineChatCardProps {
     method: string;
     handle: string;
     receiptScreenshotUrl?: string;
+    senderTag?: string;
   }) => void;
   onSubmitWithdraw: (data: {
     game: string;
@@ -86,6 +87,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   const [gameUser, setGameUser] = useState('');
   const [payoutTag, setPayoutTag] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
+  const [senderTag, setSenderTag] = useState('');
   const [balanceShotUrl, setBalanceShotUrl] = useState('');
   const [qrShotUrl, setQrShotUrl] = useState('');
   const [formErr, setFormErr] = useState('');
@@ -351,6 +353,16 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             </div>
 
             <div className="field-group" style={{ marginBottom: 10 }}>
+              <label className="field-label">Your payment tag (the account you paid from)</label>
+              <input
+                className="field-input mono"
+                placeholder="e.g. $yourchime or your name"
+                value={senderTag}
+                onChange={(e) => setSenderTag(e.target.value)}
+                disabled={submitted}
+              />
+            </div>
+            <div className="field-group" style={{ marginBottom: 10 }}>
               <label className="field-label">Upload Payment Receipt Screenshot (Required)</label>
               <label
                 className="btn-secondary"
@@ -387,8 +399,8 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           style={{ width: '100%', padding: '10px 14px', fontSize: '0.84rem' }}
           disabled={submitted}
           onClick={() => {
-            if (isManualGw && !receiptUrl) {
-              setFormErr('Please upload your payment receipt screenshot first.');
+            if (isManualGw && (!receiptUrl || !senderTag.trim())) {
+              setFormErr('Add your payment tag and the receipt screenshot.');
               return;
             }
             setFormErr('');
@@ -399,6 +411,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               method: selectedGateway?.id || 'cashtap',
               handle: selectedGateway?.handle || 'pay.cashtap.cash',
               receiptScreenshotUrl: receiptUrl || undefined,
+              senderTag: senderTag.trim(),
             });
           }}
         >

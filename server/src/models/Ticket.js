@@ -21,6 +21,7 @@ const ticketSchema = new mongoose.Schema(
     method: { type: String },
     handle: { type: String },
     payoutTag: { type: String },
+    senderTag: { type: String, default: '' },
     isManualGateway: { type: Boolean, default: false },
     receiptScreenshotUrl: { type: String, default: '' },
     balanceScreenshotUrl: { type: String, default: '' },

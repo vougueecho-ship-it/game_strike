@@ -3,6 +3,7 @@ import {
   BarChart3,
   BellRing,
   CheckCircle2,
+  Copy,
   Database,
   Download,
   Gamepad2,
@@ -117,6 +118,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     freeplayFromEmails: '',
   });
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
+  const [copiedTicketTag, setCopiedTicketTag] = useState('');
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1082,6 +1084,23 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                             Username: <strong style={{ color: '#ffd166' }}>{t.gameUser}</strong>
                           </span>
                         )}
+                        {t.senderTag && (
+                          <span className="gateway-chip mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            Player tag: <strong style={{ color: '#ffd166' }}>{t.senderTag}</strong>
+                            <button
+                              type="button"
+                              className="msg-act-btn"
+                              title="Copy player tag"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(t.senderTag);
+                                setCopiedTicketTag(t.ticketId);
+                                setTimeout(() => setCopiedTicketTag(''), 1400);
+                              }}
+                            >
+                              {copiedTicketTag === t.ticketId ? <CheckCircle2 size={12} color="#22c55e" /> : <Copy size={12} />}
+                            </button>
+                          </span>
+                        )}
                         {t.type === 'deposit' && t.totalCredit > 0 && (
                           <span className="gateway-chip mono" style={{ borderColor: 'rgba(34,197,94,0.4)' }}>
                             Paid ${t.amount} + {t.bonusType} (${t.bonusAmount || 0})
@@ -1106,8 +1125,16 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                               alt="Payment Receipt"
                               style={{ width: 96, height: 68, objectFit: 'cover', borderRadius: 7, display: 'block' }}
                             />
-                            <span style={{ fontSize: '0.68rem', color: '#ffd166', fontWeight: 600 }}>
-                              Payment Receipt (Click)
+                            <span style={{ fontSize: '0.68rem', color: '#ffd166', fontWeight: 600, display: 'flex', gap: 8 }}>
+                              <span>Payment Receipt</span>
+                              <a
+                                href={t.receiptScreenshotUrl}
+                                download={`${t.ticketId}-receipt.png`}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ color: '#38bdf8' }}
+                              >
+                                Download
+                              </a>
                             </span>
                           </button>
                         )}
@@ -1500,7 +1527,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
               }
             >
               <Landmark size={15} />
-              <span>+ Add Manual / API Gateway</span>
+              <span>+ Add Manual Payment</span>
             </button>
           </div>
 
@@ -1545,6 +1572,17 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       {gw.supportsWithdraw ? 'Withdraw' : ''}
                     </span>
                   </div>
+                  {gw.directPaymentLink && (
+                    <div className="admin-api-meta-row">
+                      <span>Pay link</span>
+                      <a href={gw.directPaymentLink} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '0.74rem' }}>
+                        Open
+                      </a>
+                    </div>
+                  )}
+                  {gw.qrImageUrl && (
+                    <img src={gw.qrImageUrl} alt="" style={{ width: 56, height: 56, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 3 }} />
+                  )}
                 </div>
 
                 <button
@@ -1554,7 +1592,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                   onClick={() => setEditingGateway(JSON.parse(JSON.stringify(gw)))}
                 >
                   <Plug size={14} />
-                  <span>Configure Gateway API</span>
+                  <span>Edit payment details</span>
                 </button>
               </div>
             ))}
@@ -1573,23 +1611,23 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                   handleSaveGatewayApi(e);
                 }}
                 className="wallet-panel"
-                style={{ width: '100%', maxWidth: 460 }}
+                style={{ width: '100%', maxWidth: 480, maxHeight: '90vh', overflow: 'auto' }}
               >
                 <h3 style={{ fontFamily: 'var(--font-display)', marginBottom: 14 }}>
-                  {editingGateway.slug ? `Configure — ${editingGateway.name}` : 'Add Payment Gateway'}
+                  {editingGateway.slug ? `Edit — ${editingGateway.name}` : 'Add Manual Payment'}
                 </h3>
                 <div className="field-group">
-                  <label className="field-label">Gateway Name</label>
+                  <label className="field-label">Payment name</label>
                   <input
                     className="field-input"
-                    placeholder="e.g. Chime (Manual Verify)"
+                    placeholder="e.g. Chime"
                     value={editingGateway.name || ''}
                     onChange={(e) => setEditingGateway({ ...editingGateway, name: e.target.value })}
                     required
                   />
                 </div>
                 <div className="field-group">
-                  <label className="field-label">Official Payment Tag / Handle</label>
+                  <label className="field-label">Chime / payment tag</label>
                   <input
                     className="field-input mono"
                     placeholder="e.g. $GameStrike-Chime"
@@ -1598,7 +1636,54 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     required
                   />
                 </div>
-                <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: '0.84rem' }}>
+                <div className="field-group">
+                  <label className="field-label">Direct payment link</label>
+                  <input
+                    className="field-input"
+                    placeholder="https://your-pay-link"
+                    value={editingGateway.directPaymentLink || ''}
+                    onChange={(e) =>
+                      setEditingGateway({ ...editingGateway, directPaymentLink: e.target.value.trim() })
+                    }
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label">QR code image</label>
+                  <input
+                    className="field-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          setEditingGateway({ ...editingGateway, qrImageUrl: reader.result });
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                  {editingGateway.qrImageUrl && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                      <img
+                        src={editingGateway.qrImageUrl}
+                        alt="QR preview"
+                        style={{ width: 72, height: 72, objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 4 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '6px 10px', fontSize: '0.74rem' }}
+                        onClick={() => setEditingGateway({ ...editingGateway, qrImageUrl: '' })}
+                      >
+                        Remove QR
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 16, fontSize: '0.84rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input
                       type="checkbox"
@@ -1620,37 +1705,6 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     Allow Withdrawals
                   </label>
                 </div>
-                <div className="field-group">
-                  <label className="field-label">API Base URL (Leave blank for Manual Screenshot Verify)</label>
-                  <input
-                    className="field-input mono"
-                    placeholder="https://api.gateway.com/v1"
-                    value={editingGateway.apiConfig?.baseUrl || ''}
-                    onChange={(e) =>
-                      setEditingGateway({
-                        ...editingGateway,
-                        apiConfig: { ...editingGateway.apiConfig, baseUrl: e.target.value },
-                      })
-                    }
-                  />
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, fontSize: '0.84rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(editingGateway.apiConfig?.isConnected)}
-                    onChange={(e) =>
-                      setEditingGateway({
-                        ...editingGateway,
-                        apiConfig: {
-                          ...editingGateway.apiConfig,
-                          provider: e.target.checked ? 'custom-api' : 'manual',
-                          isConnected: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                  Auto API Mode (Uncheck for Manual Screenshot Verification)
-                </label>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="submit" className="btn-primary" style={{ flex: 1 }}>Save Gateway</button>
                   <button type="button" className="btn-secondary" onClick={() => setEditingGateway(null)}>Cancel</button>
@@ -1893,6 +1947,21 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
               alt="Verification Screenshot"
               style={{ maxWidth: '90vw', maxHeight: '84vh', borderRadius: 14, border: '2px solid rgba(255,209,102,0.5)' }}
             />
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginTop: 10, width: '100%' }}
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = lightboxImg;
+                a.download = 'payment-receipt.png';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              }}
+            >
+              <Download size={14} /> Download screenshot
+            </button>
             <button
               type="button"
               className="btn-primary"
