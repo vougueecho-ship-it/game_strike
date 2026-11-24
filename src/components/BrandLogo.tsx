@@ -61,15 +61,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
             <span className="gs-brand-tld">.io</span>
           </span>
           {subtitle && (
-            <span
-              style={{
-                fontSize: '0.7rem',
-                fontWeight: 600,
-                color: 'var(--text-muted)',
-                letterSpacing: '0.02em',
-                marginTop: 2,
-              }}
-            >
+            <span className="gs-brand-sub">
               {subtitle}
             </span>
           )}

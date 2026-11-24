@@ -123,6 +123,14 @@ a {
   background-clip: text;
 }
 
+.gs-brand-sub {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+
 .gs-brand-tld {
   color: var(--gs-emerald);
   font-weight: 800;
@@ -1898,29 +1906,58 @@ a {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     align-content: stretch;
-    min-height: 100dvh;
+    height: 100svh;
+    min-height: 100svh;
+    max-height: 100svh;
+    overflow: hidden;
   }
   .auth-shell-short .auth-form-pane {
-    align-items: center;
-    justify-content: center;
-    padding-top: 16px;
-    padding-bottom: 16px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding-top: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
   .auth-hero-pane {
-    padding: 14px 16px 12px;
+    padding: max(10px, env(safe-area-inset-top, 0px)) 14px 10px;
     border-right: none;
     border-bottom: 1px solid rgba(56, 189, 248, 0.16);
     justify-content: flex-start;
+  }
+  .auth-hero-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .auth-hero-bar .gs-brand {
+    min-width: 0;
+  }
+  .auth-hero-bar .gs-logo-emblem {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  .auth-hero-bar .gs-brand-wordmark {
+    font-size: clamp(0.92rem, 4.4vw, 1.12rem) !important;
+  }
+  .auth-hero-bar .gs-brand-sub {
+    display: none;
+  }
+  .auth-hero-bar button {
+    padding: 6px 10px !important;
+    font-size: 0.74rem !important;
   }
   .auth-hero-content,
   .auth-hero-footer {
     display: none;
   }
   .auth-form-pane {
+    min-height: 0;
+    overflow: auto;
     align-items: flex-start;
-    padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+    justify-content: flex-start;
+    padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px));
   }
   .auth-card {
+    width: min(430px, 100%);
+    margin: 0 auto;
     padding: 16px 14px 18px;
   }
   .auth-tabs {
@@ -2604,7 +2641,7 @@ a {
 .auth-modal .auth-card {
   max-height: min(90dvh, 640px);
   overflow: auto;
-  padding: 18px 16px 16px;
+  padding: 46px 16px 16px;
 }
 
 .auth-modal .auth-sub {
@@ -2619,22 +2656,23 @@ a {
 .auth-modal .auth-tabs,
 .auth-modal .auth-google-block {
   margin-bottom: 12px;
-  padding-right: 36px;
 }
 
 .auth-modal-close {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
   z-index: 2;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   line-height: 1;
+  display: grid;
+  place-items: center;
 }
 
 /* Popup Cashier Modal */
@@ -3456,6 +3494,45 @@ a {
   .nx-nav-links {
     display: none;
   }
+  .nx-header-inner {
+    height: 58px;
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .nx-header-inner > div:first-child {
+    min-width: 0;
+    flex: 1;
+  }
+  .nx-header .gs-brand {
+    min-width: 0;
+    gap: 8px;
+  }
+  .nx-header .gs-logo-emblem {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  .nx-header .gs-brand-wordmark {
+    font-size: 0.92rem !important;
+  }
+  .nx-header-actions {
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .nx-header-actions .nx-btn-ghost,
+  .nx-header-actions .nx-btn-crimson {
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .nx-header-actions .nx-btn-ghost {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
   .nx-bonus-grid {
     grid-template-columns: 1fr;
   }
