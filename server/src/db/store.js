@@ -184,6 +184,7 @@ const DEFAULT_SETTINGS = {
   dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
   freeplayAmount: 5,
   freeplayFromEmails: '',
+  freeplayMailboxes: [],
 };
 
 let useMongo = false;
@@ -200,12 +201,7 @@ let localState = {
 };
 
 function saveLocal() {
-  try {
-    fs.mkdirSync(path.dirname(LOCAL_DB_PATH), { recursive: true });
-    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(localState, null, 2));
-  } catch (err) {
-    console.error('[LocalDB] Write failed:', err.message);
-  }
+  throw new Error('Local JSON storage is disabled. All GameStrike data is stored in MongoDB.');
 }
 
 function loadLocal() {
@@ -242,24 +238,129 @@ const settingSchema = new mongoose.Schema(
 );
 const Setting = mongoose.models.Setting || mongoose.model('Setting', settingSchema);
 
-export async function initDatabase() {
-  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/gamestrike_io';
-  try {
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000 });
-    useMongo = true;
-    const safeHost = uri.includes('@') ? uri.split('@')[1].split('/')[0] : uri;
-    console.log(`[DB] Connected to MongoDB: ${safeHost}`);
+const otpSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true, unique: true },
+    code: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { timestamps: true }
+);
+const Otp = mongoose.models.Otp || mongoose.model('Otp', otpSchema);
 
-    mongoose.connection.on('error', (err) => {
-      console.warn('[DB Error] MongoDB connection error:', err.message);
+const processedEventSchema = new mongoose.Schema(
+  {
+    eventId: { type: String, required: true, unique: true },
+  },
+  { timestamps: true }
+);
+const ProcessedEvent =
+  mongoose.models.ProcessedEvent || mongoose.model('ProcessedEvent', processedEventSchema);
+
+function withoutLocalId(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+  const copy = { ...doc };
+  delete copy._id;
+  return copy;
+}
+
+async function importLocalFileOnce() {
+  if (!fs.existsSync(LOCAL_DB_PATH)) return;
+  if ((await User.countDocuments()) > 0) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(LOCAL_DB_PATH, 'utf-8'));
+  } catch (err) {
+    console.warn(`[DB] Previous local file could not be read (${err.message}).`);
+    return;
+  }
+
+  const users = (parsed.users || []).map(withoutLocalId).filter((u) => u?.contact && u?.passwordHash);
+  if (users.length) {
+    await User.insertMany(users, { ordered: false }).catch((err) => {
+      console.warn(`[DB] User import skipped: ${err.message}`);
     });
+  }
+  const games = (parsed.games || []).map(withoutLocalId).filter((g) => g?.slug);
+  if (games.length && (await Game.countDocuments()) === 0) {
+    await Game.insertMany(games, { ordered: false }).catch((err) => {
+      console.warn(`[DB] Game import skipped: ${err.message}`);
+    });
+  }
+  const gateways = (parsed.gateways || []).map(withoutLocalId).filter((g) => g?.slug);
+  if (gateways.length && (await PaymentGateway.countDocuments()) === 0) {
+    await PaymentGateway.insertMany(gateways, { ordered: false }).catch((err) => {
+      console.warn(`[DB] Gateway import skipped: ${err.message}`);
+    });
+  }
+  const tickets = (parsed.tickets || []).map(withoutLocalId).filter((t) => t?.ticketId);
+  if (tickets.length) {
+    await Ticket.insertMany(tickets, { ordered: false }).catch((err) => {
+      console.warn(`[DB] Ticket import skipped: ${err.message}`);
+    });
+  }
+  const messages = (parsed.messages || []).map(withoutLocalId);
+  if (messages.length) {
+    await Message.insertMany(messages, { ordered: false }).catch((err) => {
+      console.warn(`[DB] Message import skipped: ${err.message}`);
+    });
+  }
+  const blocked = (parsed.blockedDevices || []).map(withoutLocalId);
+  if (blocked.length) {
+    await BlockedDevice.insertMany(blocked, { ordered: false }).catch((err) => {
+      console.warn(`[DB] Block list import skipped: ${err.message}`);
+    });
+  }
+  if (parsed.settings && typeof parsed.settings === 'object') {
+    await Setting.findOneAndUpdate(
+      { key: 'platform_settings' },
+      { $set: { value: { ...DEFAULT_SETTINGS, ...parsed.settings } } },
+      { upsert: true }
+    );
+  }
+  for (const [key, entry] of Object.entries(parsed.otps || {})) {
+    if (!entry?.code || Date.now() > Number(entry.expiresAt)) continue;
+    await Otp.updateOne(
+      { key },
+      { code: String(entry.code), expiresAt: new Date(Number(entry.expiresAt)) },
+      { upsert: true }
+    );
+  }
+  for (const eventId of parsed.processedEvents || []) {
+    if (!eventId) continue;
+    await ProcessedEvent.updateOne({ eventId: String(eventId) }, { eventId: String(eventId) }, { upsert: true });
+  }
+
+  if (users.length && (await User.countDocuments()) === 0) {
+    console.warn('[DB] Local records stayed in the old file because the user import did not land. New saves still go only to MongoDB.');
+    return;
+  }
+
+  fs.unlinkSync(LOCAL_DB_PATH);
+  console.log('[DB] Previous local records were imported into MongoDB and the JSON file was removed.');
+}
+
+export async function initDatabase() {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error('MONGODB_URI is required. GameStrike does not use a local or JSON database.');
+  }
+  try {
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 20000 });
   } catch (err) {
     useMongo = false;
-    console.log(
-      `[DB] MongoDB not reachable (${err.message}). Running with persistent local JSON store until MONGODB_URI is available.`
+    console.error(
+      `[DB] MongoDB is required and was not reachable (${err.message}). GameStrike does not save data anywhere else.`
     );
-    loadLocal();
+    throw err;
   }
+
+  useMongo = true;
+  console.log('[DB] Connected to MongoDB');
+  mongoose.connection.on('error', (err) => {
+    console.warn('[DB Error] MongoDB connection error:', err.message);
+  });
 
   await seedInitialData();
 }
@@ -269,6 +370,7 @@ async function seedInitialData() {
   const adminPass = process.env.ADMIN_PASSWORD || 'Admin@1234';
 
   if (useMongo) {
+    if ((await User.countDocuments()) > 0) return;
     const adminExists = await User.findOne({ contact: adminEmail });
     if (!adminExists) {
       await User.create({
@@ -287,34 +389,9 @@ async function seedInitialData() {
     if ((await PaymentGateway.countDocuments()) === 0) {
       await PaymentGateway.insertMany(SEED_GATEWAYS);
     }
-  } else {
-    if (!localState.users.find((u) => u.contact === adminEmail)) {
-      localState.users.push({
-        _id: 'admin-001',
-        playerCode: 'ADMIN-001',
-        name: 'GameStrike Admin',
-        username: '@admin',
-        contact: adminEmail,
-        passwordHash: await bcrypt.hash(adminPass, 10),
-        role: 'admin',
-        tier: 'VIP Strike',
-        pushSubscriptions: [],
-        fcmTokens: [],
-        createdAt: new Date().toISOString(),
-      });
-    }
-    for (const seedGame of SEED_GAMES) {
-      if (!localState.games.some((g) => g.slug === seedGame.slug)) {
-        localState.games.push({ _id: seedGame.slug, ...seedGame });
-      }
-    }
-    for (const seedGw of SEED_GATEWAYS) {
-      if (!localState.gateways.some((g) => g.slug === seedGw.slug)) {
-        localState.gateways.push({ _id: seedGw.slug, ...seedGw });
-      }
-    }
-    saveLocal();
+    return;
   }
+  throw new Error('MongoDB is required. Local JSON storage is disabled.');
 }
 
 export const db = {
@@ -416,25 +493,27 @@ export const db = {
     return localState.settings;
   },
 
-  // EMAIL OTP STORE (10-MIN EXPIRY)
+  // EMAIL OTP STORE (10-MIN EXPIRY) — MongoDB only
   async saveOtp(email, purpose, code) {
+    if (!useMongo) throw new Error('MongoDB is required.');
     const key = `${email.toLowerCase().trim()}:${purpose}`;
-    localState.otps = localState.otps || {};
-    localState.otps[key] = { code: String(code), expiresAt: Date.now() + 10 * 60 * 1000 };
-    saveLocal();
+    await Otp.findOneAndUpdate(
+      { key },
+      { code: String(code), expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
+      { upsert: true }
+    );
   },
   async verifyOtp(email, purpose, code) {
+    if (!useMongo) throw new Error('MongoDB is required.');
     const key = `${email.toLowerCase().trim()}:${purpose}`;
-    const entry = localState.otps?.[key];
+    const entry = await Otp.findOne({ key }).lean();
     if (!entry) return false;
-    if (Date.now() > entry.expiresAt) {
-      delete localState.otps[key];
-      saveLocal();
+    if (Date.now() > new Date(entry.expiresAt).getTime()) {
+      await Otp.deleteOne({ key });
       return false;
     }
     if (String(entry.code) !== String(code).trim()) return false;
-    delete localState.otps[key];
-    saveLocal();
+    await Otp.deleteOne({ key });
     return true;
   },
   async addPushSubscription(userId, subscription, fcmToken) {
@@ -549,18 +628,19 @@ export const db = {
     return t;
   },
 
-  // WEBHOOK EVENT DEDUPLICATION
+  // WEBHOOK EVENT DEDUPLICATION — MongoDB only
   async hasProcessedEvent(eventId) {
-    return localState.processedEvents.includes(eventId);
+    if (!useMongo) throw new Error('MongoDB is required.');
+    const found = await ProcessedEvent.findOne({ eventId: String(eventId) }).lean();
+    return Boolean(found);
   },
   async markEventProcessed(eventId) {
-    if (!localState.processedEvents.includes(eventId)) {
-      localState.processedEvents.push(eventId);
-      if (localState.processedEvents.length > 500) {
-        localState.processedEvents = localState.processedEvents.slice(-500);
-      }
-      saveLocal();
-    }
+    if (!useMongo) throw new Error('MongoDB is required.');
+    await ProcessedEvent.updateOne(
+      { eventId: String(eventId) },
+      { eventId: String(eventId) },
+      { upsert: true }
+    );
   },
 
   // GAMES (100% Dynamic — zero static seed games)
@@ -646,6 +726,17 @@ export const db = {
     localState.gateways.push(created);
     saveLocal();
     return created;
+  },
+  async deleteGateway(slug) {
+    if (useMongo) {
+      const removed = await PaymentGateway.findOneAndDelete({ slug });
+      return removed ? removed.toObject() : null;
+    }
+    const idx = localState.gateways.findIndex((g) => g.slug === slug);
+    if (idx < 0) return null;
+    const [removed] = localState.gateways.splice(idx, 1);
+    saveLocal();
+    return removed;
   },
 
   // DEVICE BLOCK & ACCOUNT SUSPENSION (WINNING HEAVEN STYLE)

@@ -403,11 +403,11 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Your account has been suspended.', suspended: true });
   }
   const settings = await db.getSettings();
-  res.json({ user: sanitizeUser(user), settings });
+  res.json({ user: sanitizeUser(user), settings: publicPlatformSettings(settings) });
 });
 
 app.get('/api/settings', async (_req, res) => {
-  res.json(await db.getSettings());
+  res.json(publicPlatformSettings(await db.getSettings()));
 });
 
 app.put('/api/admin/settings', requireAdmin, async (req, res) => {
@@ -426,7 +426,24 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       dailyOfferText,
       freeplayAmount,
       freeplayFromEmails,
+      freeplayMailboxes,
     } = req.body;
+    const current = await db.getSettings();
+    const previous = Array.isArray(current.freeplayMailboxes) ? current.freeplayMailboxes : [];
+    const incoming = Array.isArray(freeplayMailboxes) ? freeplayMailboxes.slice(0, 5) : [];
+    const cleanedMailboxes = incoming
+      .map((row) => {
+        const email = String(row?.email || '').trim().toLowerCase().slice(0, 120);
+        let password = String(row?.password || '');
+        if (!password) {
+          const prev = previous.find(
+            (item) => String(item?.email || '').trim().toLowerCase() === email
+          );
+          password = prev?.password || '';
+        }
+        return { email, password: password.slice(0, 200) };
+      })
+      .filter((row) => row.email.includes('@'));
     const saved = await db.updateSettings({
       welcomeBonusPercent: Math.max(0, Number(welcomeBonusPercent ?? 100)),
       regularBonusPercent: Math.max(0, Number(regularBonusPercent ?? 20)),
@@ -440,7 +457,8 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       dailyBonusLabel: String(dailyBonusLabel || "Today's Bonus").slice(0, 80),
       dailyOfferText: String(dailyOfferText || '').slice(0, 180),
       freeplayAmount: Math.max(0, Number(freeplayAmount ?? 0)),
-      freeplayFromEmails: String(freeplayFromEmails || '').slice(0, 1000),
+      freeplayFromEmails: cleanedMailboxes.map((row) => row.email).join('\n').slice(0, 1000),
+      freeplayMailboxes: cleanedMailboxes,
     });
     res.json(saved);
   } catch (err) {
@@ -511,19 +529,16 @@ app.post('/api/auth/register', async (req, res) => {
     io.to('admins').emit('admin:new-player', sanitizeUser(user));
 
     const platformSettings = await db.getSettings();
-    const fromList = String(platformSettings.freeplayFromEmails || '')
-      .split(/[\n,;]+/)
-      .map((item) => item.trim())
-      .filter((item) => item.includes('@'));
-    const fromAddress = fromList.length
-      ? fromList[Math.abs([...String(user._id)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)) % fromList.length]
-      : '';
-    sendFreeplayTaskEmail({
-      to: user.contact,
-      name: user.name,
-      from: fromAddress,
-      amount: Number(platformSettings.freeplayAmount || 0),
-    }).catch((err) => console.warn('[Freeplay email]', err.message));
+    const mailbox = pickFreeplayMailbox(platformSettings, user._id);
+    if (mailbox) {
+      sendFreeplayTaskEmail({
+        to: user.contact,
+        name: user.name,
+        from: mailbox.email,
+        pass: mailbox.password,
+        amount: Number(platformSettings.freeplayAmount || 0),
+      }).catch((err) => console.warn('[Freeplay email]', err.message));
+    }
 
     res.status(201).json({
       token: signToken(user),
@@ -769,19 +784,16 @@ app.post('/api/auth/google', async (req, res) => {
       io.to('admins').emit('admin:new-player', sanitizeUser(user));
 
       const platformSettings = await db.getSettings();
-      const fromList = String(platformSettings.freeplayFromEmails || '')
-        .split(/[\n,;]+/)
-        .map((item) => item.trim())
-        .filter((item) => item.includes('@'));
-      const fromAddress = fromList.length
-        ? fromList[Math.abs([...String(user._id)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)) % fromList.length]
-        : '';
-      sendFreeplayTaskEmail({
-        to: user.contact,
-        name: user.name,
-        from: fromAddress,
-        amount: Number(platformSettings.freeplayAmount || 0),
-      }).catch((err) => console.warn('[Freeplay email]', err.message));
+      const mailbox = pickFreeplayMailbox(platformSettings, user._id);
+      if (mailbox) {
+        sendFreeplayTaskEmail({
+          to: user.contact,
+          name: user.name,
+          from: mailbox.email,
+          pass: mailbox.password,
+          amount: Number(platformSettings.freeplayAmount || 0),
+        }).catch((err) => console.warn('[Freeplay email]', err.message));
+      }
 
       const createdPayload = {
         token: signToken(user),
@@ -858,6 +870,25 @@ const PUBLIC_METHOD_NAMES = {
   wallet: 'USDC',
   chime: 'Chime',
 };
+
+function publicPlatformSettings(settings) {
+  if (!settings || typeof settings !== 'object') return settings;
+  const { freeplayMailboxes, freeplayFromEmails, ...rest } = settings;
+  return rest;
+}
+
+function pickFreeplayMailbox(settings, userId) {
+  const rows = Array.isArray(settings?.freeplayMailboxes) ? settings.freeplayMailboxes : [];
+  const ready = rows
+    .map((row) => ({
+      email: String(row?.email || '').trim(),
+      password: String(row?.password || ''),
+    }))
+    .filter((row) => row.email.includes('@') && row.password);
+  if (!ready.length) return null;
+  const seed = Math.abs([...String(userId || '')].reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
+  return ready[seed % ready.length];
+}
 
 function publicMethodName(gateway) {
   const known = PUBLIC_METHOD_NAMES[String(gateway.slug || '').toLowerCase()];
@@ -1069,6 +1100,9 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
     const user = await db.findUserById(req.auth.id);
     const settings = await db.getSettings();
     const gw = await db.findGatewayByNameOrSlug(method);
+    if (gw && gw.enabled === false) {
+      return res.status(400).json({ error: `${gw.name} is hidden. Pick another payment method.` });
+    }
     const ticketId = `DEP-${Math.floor(1000 + Math.random() * 9000)}`;
 
     // Auto-calculate Welcome Bonus (1st deposit ONLY) vs Regular Bonus (2nd+ deposits)
@@ -1351,6 +1385,9 @@ app.post('/api/tickets/withdraw', requireAuth, async (req, res) => {
     const user = await db.findUserById(req.auth.id);
     const settings = await db.getSettings();
     const gw = await db.findGatewayByNameOrSlug(method);
+    if (gw && gw.enabled === false) {
+      return res.status(400).json({ error: `${gw.name} is hidden. Pick another payment method.` });
+    }
 
     if (gw && gw.supportsWithdraw === false) {
       return res.status(400).json({
@@ -1879,6 +1916,38 @@ app.put('/api/admin/gateways/:slug', requireAdmin, async (req, res) => {
   try {
     const saved = await db.upsertGateway(req.params.slug, req.body);
     res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const API_GATEWAY_SLUGS = new Set(['cashtap', 'cashapp', 'coinbase', 'wallet']);
+
+function isCodeGateway(gateway) {
+  if (!gateway) return false;
+  return Boolean(gateway.apiConfig?.isConnected) || API_GATEWAY_SLUGS.has(String(gateway.slug || '').toLowerCase());
+}
+
+app.patch('/api/admin/gateways/:slug/visibility', requireAdmin, async (req, res) => {
+  try {
+    const current = await db.findGatewayByNameOrSlug(req.params.slug);
+    if (!current) return res.status(404).json({ error: 'Payment method not found.' });
+    const saved = await db.upsertGateway(current.slug, { enabled: req.body.enabled !== false });
+    res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/gateways/:slug', requireAdmin, async (req, res) => {
+  try {
+    const current = await db.findGatewayByNameOrSlug(req.params.slug);
+    if (!current) return res.status(404).json({ error: 'Payment method not found.' });
+    if (isCodeGateway(current)) {
+      return res.status(400).json({ error: 'API payment methods can be hidden, not deleted.' });
+    }
+    await db.deleteGateway(current.slug);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

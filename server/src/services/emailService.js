@@ -185,8 +185,9 @@ export async function sendOtpEmail({ to, otp, purpose = 'signup' }) {
   return { sentViaSmtp: true };
 }
 
-export async function sendFreeplayTaskEmail({ to, name, from, amount }) {
-  const mail = getTransporter();
+export async function sendFreeplayTaskEmail({ to, name, from, pass, amount }) {
+  const mailbox = String(from || '').trim();
+  const password = String(pass || '');
   const dollars = Number(amount || 0).toFixed(2);
   const subject = 'GameStrike.io — your one-time freeplay task';
   const text = `Hi ${name},
@@ -198,12 +199,18 @@ If it landed in Spam, move it to Primary.
 Do not open this email and screenshot the inside.
 Open your Primary inbox and screenshot the list where this GameStrike.io email is sitting, still visible in the inbox.
 Send that inbox screenshot in GameStrike chat to claim freeplay once.`;
-  if (!mail) {
-    console.log(`[Freeplay email not sent — SMTP missing] To: ${to}`);
+  if (!mailbox || !password) {
+    console.log(`[Freeplay email not sent — Hostinger mailbox password missing] To: ${to}`);
     return { sentViaSmtp: false };
   }
+  const mail = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: String(process.env.SMTP_SECURE || 'true') === 'true',
+    auth: { user: mailbox, pass: password },
+  });
   await mail.sendMail({
-    from: from || process.env.SMTP_FROM || `GameStrike.io <${process.env.SMTP_USER}>`,
+    from: `GameStrike.io <${mailbox}>`,
     to,
     subject,
     text,

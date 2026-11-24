@@ -116,6 +116,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
     freeplayFromEmails: '',
+    freeplayMailboxes: [] as { email: string; password: string }[],
   });
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const [copiedTicketTag, setCopiedTicketTag] = useState('');
@@ -130,7 +131,21 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
       setTickets(data.tickets || []);
       setGames(data.games || []);
       setGateways(data.gateways || []);
-      if (data.settings) setRules(data.settings);
+      if (data.settings) {
+        const settings = data.settings;
+        const existing = Array.isArray(settings.freeplayMailboxes) ? settings.freeplayMailboxes : [];
+        const legacy = String(settings.freeplayFromEmails || '')
+          .split(/[\n,;]+/)
+          .map((item: string) => item.trim())
+          .filter((item: string) => item.includes('@'));
+        setRules({
+          ...settings,
+          freeplayMailboxes: Array.from({ length: 5 }, (_, i) => ({
+            email: existing[i]?.email || legacy[i] || '',
+            password: existing[i]?.password || '',
+          })),
+        });
+      }
       if (!selectedPlayerId && data.players?.length > 0) {
         setSelectedPlayerId(data.players[0]._id);
       }
@@ -344,8 +359,34 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     );
     await loadOverview(token);
     setEditingGateway(null);
-    setSaveBanner(`Saved Payment Gateway API config for ${editingGateway.name}.`);
+    setSaveBanner(`Saved ${editingGateway.name}.`);
     setTimeout(() => setSaveBanner(''), 3500);
+  };
+
+  const isApiGateway = (gw: any) =>
+    Boolean(gw?.apiConfig?.isConnected) ||
+    ['cashtap', 'cashapp', 'coinbase', 'wallet'].includes(String(gw?.slug || ''));
+
+  const handleToggleGateway = async (gw: any) => {
+    if (!token) return;
+    const show = gw.enabled === false;
+    await apiFetch(
+      `/api/admin/gateways/${gw.slug}/visibility`,
+      { method: 'PATCH', body: JSON.stringify({ enabled: show }) },
+      token
+    );
+    await loadOverview(token);
+    setSaveBanner(show ? `${gw.name} is visible to players.` : `${gw.name} is hidden from players.`);
+    setTimeout(() => setSaveBanner(''), 2500);
+  };
+
+  const handleDeleteGateway = async (gw: any) => {
+    if (!token || isApiGateway(gw)) return;
+    if (!window.confirm(`Delete ${gw.name}? Players will stop seeing this method.`)) return;
+    await apiFetch(`/api/admin/gateways/${gw.slug}`, { method: 'DELETE' }, token);
+    await loadOverview(token);
+    setSaveBanner(`${gw.name} deleted.`);
+    setTimeout(() => setSaveBanner(''), 2500);
   };
 
   const handleSaveRules = async (e: React.FormEvent) => {
@@ -1532,8 +1573,11 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
           </div>
 
           <div className="admin-api-grid">
-            {gateways.map((gw) => (
-              <div key={gw.slug} className="admin-api-card">
+            {gateways.map((gw) => {
+              const apiMethod = isApiGateway(gw);
+              const visible = gw.enabled !== false;
+              return (
+              <div key={gw.slug} className="admin-api-card" style={{ opacity: visible ? 1 : 0.55 }}>
                 <div className="admin-api-card-top">
                   <div className="admin-api-icon">
                     <Landmark size={18} color="#22c55e" />
@@ -1543,12 +1587,12 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       <strong style={{ fontSize: '0.96rem', fontFamily: 'var(--font-display)' }}>
                         {gw.name}
                       </strong>
-                      <span className={`status-pill ${gw.apiConfig?.isConnected ? 'verified' : 'processing'}`}>
-                        {gw.apiConfig?.isConnected ? 'Live API' : 'Manual Tag'}
+                      <span className={`status-pill ${visible ? 'verified' : 'processing'}`}>
+                        {visible ? (apiMethod ? 'Live API' : 'Showing') : 'Hidden'}
                       </span>
                     </div>
                     <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {gw.eta || 'Instant Auto'} • {gw.fee || 'Auto Settlement'}
+                      {apiMethod ? 'API method • hide or show only' : 'Manual method • edit, hide, or delete'}
                     </div>
                   </div>
                 </div>
@@ -1566,7 +1610,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                   </div>
                   <div className="admin-api-meta-row">
                     <span>Supports</span>
-                    <span style={{ color: '#e2e6f0', fontWeight: 600 }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
                       {gw.supportsDeposit ? 'Deposit' : ''}
                       {gw.supportsDeposit && gw.supportsWithdraw ? ' • ' : ''}
                       {gw.supportsWithdraw ? 'Withdraw' : ''}
@@ -1585,17 +1629,40 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  style={{ width: '100%', padding: '10px 14px', fontSize: '0.82rem', marginTop: 'auto' }}
-                  onClick={() => setEditingGateway(JSON.parse(JSON.stringify(gw)))}
-                >
-                  <Plug size={14} />
-                  <span>Edit payment details</span>
-                </button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ flex: 1, padding: '10px 12px', fontSize: '0.8rem' }}
+                    onClick={() => handleToggleGateway(gw)}
+                  >
+                    {visible ? 'Hide' : 'Show'}
+                  </button>
+                  {!apiMethod && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ flex: 1, padding: '10px 12px', fontSize: '0.8rem' }}
+                        onClick={() => setEditingGateway(JSON.parse(JSON.stringify(gw)))}
+                      >
+                        <Pencil size={14} />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '10px 12px', fontSize: '0.8rem', color: '#dc2626' }}
+                        onClick={() => handleDeleteGateway(gw)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {editingGateway && (
@@ -1719,7 +1786,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
       {/* TAB 5: BONUS & WITHDRAWAL RULES SETTINGS */}
       {tab === 'rules' && (
         <div className="admin-scroll-body">
-          <div className="games-container" style={{ maxWidth: 680, paddingTop: 20 }}>
+          <div className="games-container admin-rules-wrap">
             <div className="wallet-panel">
               <h2 style={{ fontFamily: 'var(--font-display)', marginBottom: 6 }}>
                 Bonus Percentages &amp; Withdrawal Multiplier Rules
@@ -1729,7 +1796,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
               </p>
 
               <form onSubmit={handleSaveRules}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div className="admin-rules-grid">
                   <div className="field-group">
                     <label className="field-label">Welcome Bonus % (1st Deposit Only)</label>
                     <input
@@ -1776,7 +1843,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       onChange={(e) => setRules({ ...rules, dailyBonusLabel: e.target.value })}
                     />
                   </div>
-                  <div className="field-group" style={{ gridColumn: '1 / -1' }}>
+                  <div className="field-group admin-rules-span">
                     <label className="field-label">Top marquee text (today's offer)</label>
                     <input
                       className="field-input"
@@ -1798,15 +1865,51 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       }
                     />
                   </div>
-                  <div className="field-group" style={{ gridColumn: '1 / -1' }}>
-                    <label className="field-label">Freeplay Hostinger from-emails (one per line, 4 or 5)</label>
-                    <textarea
-                      className="field-input"
-                      rows={4}
-                      value={rules.freeplayFromEmails || ''}
-                      onChange={(e) => setRules({ ...rules, freeplayFromEmails: e.target.value })}
-                      placeholder={'promo1@gamestrike.io\npromo2@gamestrike.io'}
-                    />
+                  <div className="field-group admin-rules-span">
+                    <label className="field-label">Freeplay Hostinger emails</label>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', margin: '0 0 8px' }}>
+                      The freeplay email is sent from one of these mailboxes. It only sends after that mailbox password is saved.
+                    </p>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {Array.from({ length: 5 }, (_, index) => {
+                        const saved = Array.isArray(rules.freeplayMailboxes) ? rules.freeplayMailboxes : [];
+                        const legacy = String(rules.freeplayFromEmails || '')
+                          .split(/[\n,;]+/)
+                          .map((item) => item.trim())
+                          .filter((item) => item.includes('@'));
+                        const row = saved[index] || { email: legacy[index] || '', password: '' };
+                        const updateRow = (patch: { email?: string; password?: string }) => {
+                          const next = Array.from({ length: 5 }, (_, i) => {
+                            const current = saved[i] || { email: legacy[i] || '', password: '' };
+                            return i === index ? { ...current, ...patch } : current;
+                          });
+                          setRules({
+                            ...rules,
+                            freeplayMailboxes: next,
+                            freeplayFromEmails: next.map((item) => item.email).filter(Boolean).join('\n'),
+                          });
+                        };
+                        return (
+                          <div key={index} className="admin-mailbox-row">
+                            <input
+                              className="field-input"
+                              placeholder={`promo${index + 1}@gamestrike.io`}
+                              value={row.email || ''}
+                              onChange={(e) => updateRow({ email: e.target.value })}
+                              autoComplete="off"
+                            />
+                            <input
+                              className="field-input"
+                              type="password"
+                              placeholder="Hostinger password"
+                              value={row.password || ''}
+                              onChange={(e) => updateRow({ password: e.target.value })}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="field-group">
                     <label className="field-label">Referral Reward ($ Freeplay on 1st $20+ Deposit)</label>

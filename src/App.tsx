@@ -39,6 +39,8 @@ function parseRouteFromHash(): RouteView {
   return 'chat';
 }
 
+let googleSignInFlight: Promise<void> | null = null;
+
 function mapServerMsg(m: any): ChatMessage {
   return {
     id: String(m._id || m.id || uid()),
@@ -277,33 +279,59 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
-    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
-    const hashParams = new URLSearchParams(hash);
+    const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const hashQuery = rawHash.includes('?') ? rawHash.slice(rawHash.indexOf('?') + 1) : rawHash;
+    const hashParams = new URLSearchParams(hashQuery);
     const code = search.get('code') || '';
     const accessToken = hashParams.get('access_token') || '';
     const sid = search.get('state') || hashParams.get('state') || '';
-    const oauthError = search.get('error') || hashParams.get('error');
-    if (!code && !accessToken && !oauthError) return;
-    window.history.replaceState({}, '', `${window.location.pathname}`);
-    if (oauthError || (!code && !accessToken)) {
+    const oauthError = search.get('error') || hashParams.get('error') || '';
+    if (code) sessionStorage.setItem('gs_google_code', code);
+    if (accessToken) sessionStorage.setItem('gs_google_access', accessToken);
+    if (sid) sessionStorage.setItem('gs_google_sid', sid);
+    if (oauthError) sessionStorage.setItem('gs_google_oauth_error', oauthError);
+    if (code || accessToken || oauthError || search.has('state')) {
+      const hashPath = window.location.hash.includes('?')
+        ? window.location.hash.slice(0, window.location.hash.indexOf('?'))
+        : window.location.hash;
+      window.history.replaceState({}, '', `${window.location.pathname}${hashPath}`);
+    }
+
+    const savedCode = sessionStorage.getItem('gs_google_code') || '';
+    const savedAccess = sessionStorage.getItem('gs_google_access') || '';
+    const savedSid = sessionStorage.getItem('gs_google_sid') || '';
+    const savedError = sessionStorage.getItem('gs_google_oauth_error') || '';
+    if (!savedCode && !savedAccess && !savedError) return;
+
+    const clearGoogleAttempt = () => {
+      sessionStorage.removeItem('gs_google_code');
+      sessionStorage.removeItem('gs_google_access');
+      sessionStorage.removeItem('gs_google_sid');
+      sessionStorage.removeItem('gs_google_oauth_error');
+    };
+
+    if (savedError || (!savedCode && !savedAccess)) {
+      clearGoogleAttempt();
       sessionStorage.setItem('gs_google_error', 'Google sign-in was cancelled.');
       setGoogleReturn(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
+    if (googleSignInFlight) return;
+
+    googleSignInFlight = (async () => {
       try {
         const res = await apiFetch<{ token: string; user: UserProfile; isNewUser: boolean }>(
           '/api/auth/google',
           {
             method: 'POST',
             body: JSON.stringify(
-              code
-                ? { code, redirectUri: window.location.origin, sid }
-                : { accessToken, sid }
+              savedCode
+                ? { code: savedCode, redirectUri: window.location.origin, sid: savedSid }
+                : { accessToken: savedAccess, sid: savedSid }
             ),
           }
         );
+        clearGoogleAttempt();
         if (window.opener && window.opener !== window) {
           window.opener.postMessage(
             {
@@ -315,25 +343,20 @@ export const App: React.FC = () => {
             window.location.origin
           );
           window.close();
-          return;
         }
-        if (!cancelled) {
-          setUser(res.user);
-          setToken(res.token);
-          setActiveThread('concierge');
-          navigate('chat');
-          setGoogleReturn(false);
-        }
-      } catch {
-        if (!cancelled) {
-          sessionStorage.setItem('gs_google_error', 'Google sign-in could not be verified.');
-          setGoogleReturn(false);
-        }
+        setUser(res.user);
+        setToken(res.token);
+        setActiveThread('concierge');
+        navigate('chat');
+        setGoogleReturn(false);
+      } catch (err) {
+        clearGoogleAttempt();
+        googleSignInFlight = null;
+        const message = err instanceof Error ? err.message : 'Google sign-in could not be verified.';
+        sessionStorage.setItem('gs_google_error', message);
+        setGoogleReturn(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const handleSignOut = () => {
