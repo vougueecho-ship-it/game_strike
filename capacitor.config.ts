@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'io.gamestrike.app',
   appName: 'GameStrike.io',
-  webDir: 'dist',
+  webDir: 'android-shell',
   server: {
     url: 'https://gamestrike.io',
     androidScheme: 'https',
