@@ -108,11 +108,17 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
       );
       const narrowScreen = window.matchMedia('(max-width: 860px)').matches;
 
-      // The in-app WebView has no Google accounts, so it asks for an email.
-      // Chrome Custom Tabs use the phone's Chrome accounts, same as Winning Heaven.
+      // The in-app page has no saved Google accounts. Chrome does.
       if (nativeApp) {
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: oauthUrl.toString(), presentationStyle: 'popover' });
+        const cap = (window as unknown as { Capacitor?: { isPluginAvailable?: (name: string) => boolean } }).Capacitor;
+        if (cap?.isPluginAvailable?.('Browser')) {
+          const { Browser } = await import('@capacitor/browser');
+          await Browser.open({ url: oauthUrl.toString(), presentationStyle: 'popover' });
+        } else {
+          const parsed = new URL(oauthUrl.toString());
+          const fallback = encodeURIComponent(parsed.toString());
+          window.location.href = `intent://${parsed.host}${parsed.pathname}${parsed.search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${fallback};end`;
+        }
         const poll = window.setInterval(async () => {
           try {
             const status = await apiFetch<{
@@ -124,9 +130,10 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
             if (status.status === 'ready' && status.token && status.user) {
               window.clearInterval(poll);
               try {
+                const { Browser } = await import('@capacitor/browser');
                 await Browser.close();
               } catch {
-                /* the tab may already be closed */
+                /* Chrome was opened without the plugin, or the tab is already closed */
               }
               finishGoogle(status.user, Boolean(status.isNewUser), status.token);
               setLoading(false);
