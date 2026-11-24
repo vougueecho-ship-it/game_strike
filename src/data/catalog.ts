@@ -123,23 +123,9 @@ export const SUPPORT_THREADS: ThreadMeta[] = [
   {
     id: 'concierge',
     name: 'GameStrike Concierge',
-    role: '24/7 Automated Gaming Desk',
-    preview: 'Auto CashTap Deposits, Cashouts & Game IDs',
+    role: '24/7 Support',
+    preview: 'Deposits, cashouts, game IDs, and bonuses',
     badge: 'Main',
-    online: true,
-  },
-  {
-    id: 'cashier',
-    name: 'Auto Cashier (CashTap)',
-    role: 'Instant Hosted Checkout & Payouts',
-    preview: 'CashApp Pay, Card/Apple Pay & USDC Wallet',
-    online: true,
-  },
-  {
-    id: 'accounts',
-    name: 'Game IDs & Bonuses',
-    role: 'API-Connected Game Accounts',
-    preview: 'Instant Game ID provisioning & promos',
     online: true,
   },
 ];

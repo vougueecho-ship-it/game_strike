@@ -31,6 +31,7 @@ import {
   Smartphone,
   Sun,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
@@ -176,16 +177,18 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const currentThreadMeta =
-    SUPPORT_THREADS.find((t) => t.id === activeThread) || SUPPORT_THREADS[0];
-
-  const threadMessages = messages.filter((m) => m.threadId === activeThread);
+  const currentThreadMeta = SUPPORT_THREADS[0];
+  const threadMessages = messages;
 
   const filteredThreads = SUPPORT_THREADS.filter(
     (t) =>
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    if (activeThread !== 'concierge') onSelectThread('concierge');
+  }, [activeThread, onSelectThread]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -285,13 +288,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 }}
               >
                 <div className="thread-avatar">
-                  {thread.id === 'concierge' ? (
-                    <img src="/gamestrike-logo.jpg" alt="Concierge" />
-                  ) : thread.id === 'cashier' ? (
-                    <Landmark size={19} />
-                  ) : (
-                    <Gamepad2 size={19} />
-                  )}
+                  <img src="/gamestrike-logo.jpg" alt="Concierge" />
                   <span className="status-dot" />
                 </div>
 
@@ -307,6 +304,49 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
               </button>
             );
           })}
+
+          <div className="sidebar-section-label">Your account</div>
+
+          <button
+            type="button"
+            className="thread-item"
+            onClick={() => {
+              onSelectThread('concierge');
+              onTriggerAction('deposit');
+              setMobileMenuOpen(false);
+            }}
+          >
+            <div className="thread-avatar">
+              <Wallet size={18} />
+            </div>
+            <div className="thread-meta">
+              <div className="thread-meta-top">
+                <span className="thread-name">Wallet</span>
+                <span className="thread-pill">${Number(user.walletBalance || 0).toFixed(2)}</span>
+              </div>
+              <div className="thread-preview">Deposit, then load a game from this balance</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className="thread-item"
+            onClick={() => {
+              setCredsModalOpen(true);
+              setMobileMenuOpen(false);
+            }}
+          >
+            <div className="thread-avatar">
+              <KeyRound size={18} />
+            </div>
+            <div className="thread-meta">
+              <div className="thread-meta-top">
+                <span className="thread-name">My Game IDs</span>
+                <span className="thread-pill">{gameCredentials.length}</span>
+              </div>
+              <div className="thread-preview">Saved usernames and passwords</div>
+            </div>
+          </button>
 
           {/* Compact Trust Info Box */}
           <div
