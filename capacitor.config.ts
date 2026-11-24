@@ -5,8 +5,17 @@ const config: CapacitorConfig = {
   appName: 'GameStrike.io',
   webDir: 'dist',
   server: {
+    url: 'https://gamestrike.io',
     androidScheme: 'https',
     cleartext: true,
+    allowNavigation: [
+      'gamestrike.io',
+      '*.gamestrike.io',
+      'accounts.google.com',
+      '*.google.com',
+      '*.googleapis.com',
+      '*.gstatic.com',
+    ],
   },
   plugins: {
     SystemBars: {
