@@ -26,7 +26,6 @@ import {
   Pencil,
   Search,
   Send,
-  Share2,
   ShieldCheck,
   Smartphone,
   Sun,
@@ -1048,17 +1047,17 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
             </button>
           </div>
 
-          {/* REFER & EARN $10 FREEPLAY CARD */}
-          <div className="details-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div className="details-title" style={{ marginBottom: 0 }}>
-                Refer &amp; Earn ($10)
+          <div className="details-card refer-card">
+            <div className="refer-card-top">
+              <div>
+                <div className="details-title" style={{ marginBottom: 4 }}>Referral bonus</div>
+                <p>
+                  Share your link. When their deposit succeeds, you get{' '}
+                  <strong>{Number(settings?.referralBonus ?? 10)}%</strong> of it in your wallet. Once per friend.
+                </p>
               </div>
-              <Share2 size={14} color="#22c55e" />
+              <strong className="refer-pct">{Number(settings?.referralBonus ?? 10)}%</strong>
             </div>
-            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 8 }}>
-              Share your link — when a friend loads $20+, you automatically earn <strong>$10 Freeplay</strong>!
-            </p>
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               <input
                 className="field-input mono"

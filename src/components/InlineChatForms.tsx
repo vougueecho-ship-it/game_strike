@@ -166,24 +166,30 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           }
         }}
       >
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          Screenshot the Primary inbox list. The GameStrike email should be visible there. Do not open it, and do not mark it as spam.
+        <div className="inline-card-title">
+          <Gift size={16} color="#ff1f4b" />
+          <span>Freeplay screenshot</span>
+        </div>
+        <p className="inbox-note">
+          Screenshot the Primary inbox list. The GameStrike email should be visible. Do not open it, and do not mark it as spam.
         </p>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-              if (typeof reader.result === 'string') setReceiptUrl(reader.result);
-            };
-            reader.readAsDataURL(file);
-          }}
-        />
-        {formErr && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{formErr}</p>}
-        <button className="btn-primary" type="submit" disabled={submitted}>Submit inbox screenshot</button>
+        <label className={`inbox-drop${receiptUrl ? ' ready' : ''}`}>
+          {receiptUrl ? (
+            <img src={receiptUrl} alt="Inbox screenshot preview" />
+          ) : (
+            <ImagePlus size={22} />
+          )}
+          <span>{receiptUrl ? 'Screenshot attached · tap to change' : 'Tap to add inbox screenshot'}</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => readImageFile(e.target.files?.[0], setReceiptUrl)}
+          />
+        </label>
+        {formErr && <p className="inbox-error">{formErr}</p>}
+        <button className="btn-primary inbox-submit" type="submit" disabled={submitted}>
+          {submitted ? 'Sent — admin will approve it' : 'Submit inbox screenshot'}
+        </button>
       </form>
     );
   }
@@ -1075,6 +1081,11 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               title: `${settings.regularBonusPercent}% Regular`,
               code: 'REGULAR',
               desc: 'Added on every deposit after the first.',
+            },
+            {
+              title: `${Number(settings.referralBonus ?? 10)}% Referral`,
+              code: 'REFERRAL',
+              desc: 'Paid once to the person who invited you, when your deposit succeeds.',
             },
             {
               title: `${settings.dailyBonusPercent || 0}% ${settings.dailyBonusLabel || "Today's Bonus"}`,

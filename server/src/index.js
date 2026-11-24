@@ -44,19 +44,26 @@ const io = new Server(server, {
 
 app.use(cors());
 
-// Helper: Auto-award $10 Referral Freeplay when a referred player completes their first $20+ deposit
+// One referral bonus for the person who invited this player, after that player's first successful deposit.
 async function maybeAwardReferralBonus(playerRecord, depositAmount) {
   if (!playerRecord || playerRecord.referralRewarded || !playerRecord.referredBy) return;
-  if (Number(depositAmount) < 20) return;
+  const paid = Number(depositAmount);
+  if (!(paid > 0)) return;
+
+  const settings = await db.getSettings();
+  const percent = Math.min(100, Math.max(0, Number(settings.referralBonus || 0)));
+  if (!(percent > 0)) return;
+  const bonus = Number(((paid * percent) / 100).toFixed(2));
+  if (!(bonus > 0)) return;
 
   const referrer = await db.findUserByPlayerCode(playerRecord.referredBy);
-  if (!referrer) return;
+  if (!referrer || String(referrer._id) === String(playerRecord._id)) return;
 
-  await db.updateUser(playerRecord._id, { referralRewarded: true });
-  await db.updateUser(referrer._id, {
-    referralCount: Number(referrer.referralCount || 0) + 1,
-    referralBonusEarned: Number(referrer.referralBonusEarned || 0) + 10,
-  });
+  const claimed = await db.claimReferralOnce(playerRecord._id);
+  if (!claimed) return;
+
+  const paidReferrer = await db.addReferralEarning(referrer._id, bonus);
+  const balance = Number(paidReferrer?.walletBalance || 0);
 
   const refTicketId = `REF-${Math.floor(1000 + Math.random() * 9000)}`;
   const refTicket = await db.createTicket({
@@ -64,13 +71,14 @@ async function maybeAwardReferralBonus(playerRecord, depositAmount) {
     userId: String(referrer._id),
     playerName: referrer.name,
     type: 'bonus',
-    title: `$10 Referral Freeplay (${playerRecord.name})`,
-    subtitle: `Friend ${playerRecord.playerCode} completed first $${Number(depositAmount).toFixed(2)} deposit`,
-    amount: 10,
+    title: `${percent}% referral · $${bonus.toFixed(2)}`,
+    subtitle: `${playerRecord.name} deposit $${paid.toFixed(2)} — paid once to the referrer`,
+    amount: bonus,
     bonusType: 'Referral Bonus',
-    bonusAmount: 10,
-    totalCredit: 10,
-    status: 'Verified',
+    bonusAmount: bonus,
+    totalCredit: bonus,
+    status: 'Completed',
+    walletCredited: true,
   });
 
   const refMsg = await db.createMessage({
@@ -78,16 +86,21 @@ async function maybeAwardReferralBonus(playerRecord, depositAmount) {
     threadId: 'concierge',
     sender: 'agent',
     agentName: 'GameStrike Rewards',
-    text: `🎉 Referral Bonus Unlocked! Your friend **${playerRecord.name}** just made their first $${Number(depositAmount).toFixed(2)} deposit — **$10 Freeplay** (${refTicketId}) has been credited to your account!`,
+    text: `Referral bonus is in. ${playerRecord.name} deposited $${paid.toFixed(2)}, so your ${percent}% ($${bonus.toFixed(2)}) is in your wallet. This pays once per friend. Wallet balance: **$${balance.toFixed(2)}**.`,
   });
 
   io.to(`user:${referrer._id}`).emit('ticket:created', refTicket);
   io.to(`user:${referrer._id}`).emit('chat:message', refMsg);
+  io.to(`user:${referrer._id}`).emit('wallet:updated', {
+    walletBalance: balance,
+    referralBonusEarned: Number(paidReferrer?.referralBonusEarned || 0),
+    referralCount: Number(paidReferrer?.referralCount || 0),
+  });
   io.to('admins').emit('ticket:created', refTicket);
 
   await sendPushToUser(referrer, {
-    title: '🎉 $10 Referral Freeplay Earned!',
-    body: `${playerRecord.name} completed their first deposit. Claim your $10 freeplay in chat!`,
+    title: `Referral bonus $${bonus.toFixed(2)}`,
+    body: `${playerRecord.name} deposited. Your ${percent}% referral is in your wallet.`,
     url: '/#/chat',
     tag: refTicketId,
   });
@@ -448,7 +461,7 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
     const saved = await db.updateSettings({
       welcomeBonusPercent: Math.max(0, Number(welcomeBonusPercent ?? 100)),
       regularBonusPercent: Math.max(0, Number(regularBonusPercent ?? 20)),
-      referralBonus: Math.max(0, Number(referralBonus ?? 10)),
+      referralBonus: Math.min(100, Math.max(0, Number(referralBonus ?? 10))),
       freeplayMinWithdraw: Math.max(1, Number(freeplayMinWithdraw ?? 30)),
       freeplayMaxWithdraw: Math.max(1, Number(freeplayMaxWithdraw ?? 100)),
       withdrawMultiplier: Math.max(1, Number(withdrawMultiplier ?? 3)),
@@ -1397,7 +1410,23 @@ app.post('/api/tickets/freeplay', requireAuth, async (req, res) => {
       receiptScreenshotUrl: req.body.receiptScreenshotUrl,
       status: 'Processing',
     });
+    const amount = Number(settings.freeplayAmount || 0);
+    const msg = await db.createMessage({
+      userId: String(user._id),
+      threadId: 'concierge',
+      sender: 'agent',
+      agentName: 'GameStrike Support',
+      text: `Got your freeplay screenshot (${ticket.ticketId}). Admin will approve it, and $${amount.toFixed(2)} will be added to your wallet after that.`,
+    });
+    io.to(`user:${user._id}`).emit('chat:message', msg);
+    io.to('admins').emit('chat:message', msg);
     io.to('admins').emit('ticket:created', ticket);
+    await sendPushToUser(user, {
+      title: 'Freeplay sent for approval',
+      body: `Admin will approve ${ticket.ticketId}. $${amount.toFixed(2)} is added after that.`,
+      url: '/#/chat',
+      tag: ticket.ticketId,
+    });
     res.status(201).json({ ticket });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1881,6 +1910,9 @@ app.patch('/api/admin/tickets/:ticketId', requireAdmin, async (req, res) => {
           text: `Freeplay approved. $${amount.toFixed(2)} was added once to your wallet. Balance: **$${Number(balance || 0).toFixed(2)}**.`,
         });
         io.to(`user:${playerRec._id}`).emit('chat:message', msg);
+        io.to(`user:${playerRec._id}`).emit('wallet:updated', {
+          walletBalance: Number(balance || 0),
+        });
       }
     } else if (status === 'Completed' && updated.type === 'withdraw' && updated.game && updated.amount) {
       const gameDoc = await db.findGameByNameOrSlug(updated.game);

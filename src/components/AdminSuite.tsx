@@ -1831,7 +1831,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                 Bonus Percentages &amp; Withdrawal Multiplier Rules
               </h2>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.86rem', marginBottom: 20 }}>
-                Control the automatic Welcome Bonus (1st deposit only), Regular Reload Bonus (2nd+ deposits), and Minimum Withdrawal Multiplier.
+                Welcome is the first deposit, regular is every deposit after that, and referral is paid once to the inviter when that player's deposit succeeds.
               </p>
 
               <form onSubmit={handleSaveRules}>
@@ -1951,12 +1951,13 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     </div>
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Referral Reward ($ Freeplay on 1st $20+ Deposit)</label>
+                    <label className="field-label">Referral bonus % (once, to the inviter, on a successful deposit)</label>
                     <input
                       className="field-input mono"
                       type="number"
                       min={0}
-                      value={rules.referralBonus || 10}
+                      max={100}
+                      value={rules.referralBonus ?? 10}
                       onChange={(e) =>
                         setRules({ ...rules, referralBonus: Number(e.target.value) || 0 })
                       }
@@ -2022,7 +2023,8 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     ${((20 + (20 * rules.welcomeBonusPercent) / 100) * rules.withdrawMultiplier).toFixed(2)}
                   </strong>{' '}
                   ({rules.withdrawMultiplier}x). On their 2nd deposit, they get{' '}
-                  <strong>+{rules.regularBonusPercent}%</strong> Regular Bonus.
+                  <strong>+{rules.regularBonusPercent}%</strong> Regular Bonus. If someone invited them, that person gets{' '}
+                  <strong>{rules.referralBonus ?? 10}%</strong> of this deposit once, in their own wallet.
                 </div>
 
                 <button type="submit" className="btn-primary" style={{ width: '100%' }}>

@@ -427,6 +427,14 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                 label: 'Regular',
                 title: `${settings.regularBonusPercent}% Regular`,
               },
+              {
+                id: 'referral',
+                code: 'REFERRAL',
+                kicker: 'Invite',
+                value: `${Number(settings.referralBonus ?? 10)}%`,
+                label: 'Referral',
+                title: `${Number(settings.referralBonus ?? 10)}% Referral`,
+              },
             ].map((offer) => (
               <button
                 key={offer.id}

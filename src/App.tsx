@@ -139,6 +139,7 @@ export const App: React.FC = () => {
     dailyBonusLabel: "Today's Bonus",
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
+    referralBonus: 10,
   });
 
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
@@ -206,6 +207,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!token || !user) return;
 
+    apiFetch<{ user: UserProfile }>('/api/auth/me', {}, token)
+      .then((res) => {
+        if (res.user) setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
+      })
+      .catch(() => {});
+
     apiFetch<{ messages: any[]; tickets: any[] }>('/api/chat/history', {}, token)
       .then((res) => {
         if (res.messages?.length) {
@@ -242,10 +249,16 @@ export const App: React.FC = () => {
       setMessages([]);
     });
 
-    socket.on('wallet:updated', (payload: { walletBalance?: number }) => {
-      if (typeof payload?.walletBalance === 'number') {
-        setUser((prev) => (prev ? { ...prev, walletBalance: payload.walletBalance } : prev));
-      }
+    socket.on('wallet:updated', (payload: { walletBalance?: number; referralBonusEarned?: number; referralCount?: number }) => {
+      setUser((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          walletBalance: typeof payload?.walletBalance === 'number' ? payload.walletBalance : prev.walletBalance,
+          referralBonusEarned: typeof payload?.referralBonusEarned === 'number' ? payload.referralBonusEarned : prev.referralBonusEarned,
+          referralCount: typeof payload?.referralCount === 'number' ? payload.referralCount : prev.referralCount,
+        };
+      });
     });
 
     socket.on('ticket:created', (raw: any) => {
@@ -806,13 +819,21 @@ export const App: React.FC = () => {
   };
 
   const handleClaimPromo = (title: string, code: string) => {
+    if (code === 'REFERRAL') {
+      const pct = Number(settings.referralBonus ?? 10);
+      pushAgentReply(activeThread, {
+        text: `Referral is ${pct}% and it pays once. When someone joins with your link and their deposit succeeds, ${pct}% of that deposit goes into your wallet automatically.`,
+        quickReplies: [{ label: 'Deposit now', action: 'deposit' }],
+      });
+      return;
+    }
     if (code === 'DAILY') sessionStorage.setItem('gs_bonus_choice', 'daily');
     else sessionStorage.removeItem('gs_bonus_choice');
     const tags = gateways
       .map((gw) => `${paymentMethodName(gw)}${gw.handle ? `: ${gw.handle}` : ''}`)
       .join('\n');
     pushAgentReply(activeThread, {
-      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after the Primary inbox screenshot is approved\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nManual methods such as Chime show the QR in the deposit card. Download it there, pay, then upload the receipt. Successful payments, including the bonus, go into your wallet. Game loads are taken from that wallet and cannot be more than the balance.`,
+      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after the Primary inbox screenshot is approved\n• Referral ${Number(settings.referralBonus ?? 10)}% once, paid to the inviter when that player's deposit succeeds\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nManual methods such as Chime show the QR in the deposit card. Download it there, pay, then upload the receipt. Successful payments, including the bonus, go into your wallet. Game loads are taken from that wallet and cannot be more than the balance.`,
       quickReplies: [
         { label: 'Deposit now', action: 'deposit' },
         { label: 'Load a game', action: 'load-game' },

@@ -104,8 +104,8 @@ export const PROMO_OFFERS = [
   {
     id: 'refer-10',
     badge: 'REFERRAL',
-    title: '$10 Instant Freeplay',
-    description: 'Invite a friend to GameStrike.io — once they load $20, you both receive $10 freeplay.',
+    title: 'Referral percent',
+    description: 'The inviter gets the admin referral percent once, when that player’s deposit succeeds.',
     code: 'FRIEND10',
   },
 ];

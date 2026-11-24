@@ -443,6 +443,37 @@ export const db = {
     saveLocal();
     return created;
   },
+  async claimReferralOnce(userId) {
+    if (useMongo) {
+      return User.findOneAndUpdate(
+        { _id: userId, referralRewarded: { $ne: true } },
+        { $set: { referralRewarded: true } },
+        { new: true }
+      ).lean();
+    }
+    const u = localState.users.find((x) => String(x._id) === String(userId));
+    if (!u || u.referralRewarded) return null;
+    u.referralRewarded = true;
+    saveLocal();
+    return u;
+  },
+  async addReferralEarning(userId, amount) {
+    const bonus = Number(Number(amount || 0).toFixed(2));
+    if (useMongo) {
+      return User.findByIdAndUpdate(
+        userId,
+        { $inc: { referralCount: 1, referralBonusEarned: bonus, walletBalance: bonus } },
+        { new: true }
+      ).lean();
+    }
+    const u = localState.users.find((x) => String(x._id) === String(userId));
+    if (!u) return null;
+    u.referralCount = Number(u.referralCount || 0) + 1;
+    u.referralBonusEarned = Number((Number(u.referralBonusEarned || 0) + bonus).toFixed(2));
+    u.walletBalance = Number((Number(u.walletBalance || 0) + bonus).toFixed(2));
+    saveLocal();
+    return u;
+  },
   async updateUser(userId, updates) {
     if (useMongo) {
       return User.findByIdAndUpdate(userId, { $set: updates }, { new: true }).lean();
