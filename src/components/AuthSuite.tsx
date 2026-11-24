@@ -107,7 +107,42 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
         (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
       );
       const narrowScreen = window.matchMedia('(max-width: 860px)').matches;
-      if (nativeApp || narrowScreen) {
+
+      // The in-app WebView has no Google accounts, so it asks for an email.
+      // Chrome Custom Tabs use the phone's Chrome accounts, same as Winning Heaven.
+      if (nativeApp) {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: oauthUrl.toString(), presentationStyle: 'popover' });
+        const poll = window.setInterval(async () => {
+          try {
+            const status = await apiFetch<{
+              status: string;
+              token?: string;
+              user?: UserProfile;
+              isNewUser?: boolean;
+            }>(`/api/auth/google/session/${session.sid}`);
+            if (status.status === 'ready' && status.token && status.user) {
+              window.clearInterval(poll);
+              try {
+                await Browser.close();
+              } catch {
+                /* the tab may already be closed */
+              }
+              finishGoogle(status.user, Boolean(status.isNewUser), status.token);
+              setLoading(false);
+            }
+          } catch {
+            /* keep polling until the session is ready or expires */
+          }
+        }, 500);
+        window.setTimeout(() => {
+          window.clearInterval(poll);
+          setLoading(false);
+        }, 180000);
+        return;
+      }
+
+      if (narrowScreen) {
         window.location.assign(oauthUrl.toString());
         return;
       }
