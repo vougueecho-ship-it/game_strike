@@ -79,6 +79,7 @@ interface ChatSuiteProps {
     payoutTag: string;
     balanceScreenshotUrl?: string;
     qrScreenshotUrl?: string;
+    gameBalance?: number;
   }) => void;
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
@@ -311,7 +312,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
             className="thread-item"
             onClick={() => {
               onSelectThread('concierge');
-              onTriggerAction('deposit');
+              onTriggerAction(Number(user.walletBalance || 0) > 0 ? 'load-game' : 'deposit');
               setMobileMenuOpen(false);
             }}
           >
@@ -323,7 +324,11 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 <span className="thread-name">Wallet</span>
                 <span className="thread-pill">${Number(user.walletBalance || 0).toFixed(2)}</span>
               </div>
-              <div className="thread-preview">Deposit, then load a game from this balance</div>
+              <div className="thread-preview">
+                {Number(user.walletBalance || 0) > 0
+                  ? 'Load this balance into a game, or deposit more'
+                  : 'Wallet is empty. Deposit to get a balance'}
+              </div>
             </div>
           </button>
 
@@ -761,6 +766,14 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
         {/* Bottom Composer */}
         <footer className="chat-composer-wrap">
           <div className="composer-shortcut-bar">
+            <button
+              type="button"
+              className="composer-shortcut-btn"
+              onClick={() => onTriggerAction('load-game')}
+            >
+              <Wallet size={13} color="#ffd166" />
+              Load
+            </button>
             <button
               type="button"
               className="composer-shortcut-btn"

@@ -183,6 +183,8 @@ const DEFAULT_SETTINGS = {
   dailyBonusLabel: "Today's Bonus",
   dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
   freeplayAmount: 5,
+  freeplayMinGameBalance: 120,
+  freeplayCashoutPercent: 10,
   freeplayFromEmails: '',
   freeplayMailboxes: [],
 };
@@ -448,6 +450,38 @@ export const db = {
     localState.users.unshift(created);
     saveLocal();
     return created;
+  },
+  async claimWelcomeOnce(userId) {
+    if (useMongo) {
+      return User.findOneAndUpdate(
+        {
+          _id: userId,
+          welcomeBonusClaimed: { $ne: true },
+          completedDepositsCount: { $lte: 0 },
+        },
+        { $set: { welcomeBonusClaimed: true } },
+        { new: true }
+      ).lean();
+    }
+    const u = localState.users.find((x) => String(x._id) === String(userId));
+    if (!u || u.welcomeBonusClaimed || Number(u.completedDepositsCount || 0) > 0) return null;
+    u.welcomeBonusClaimed = true;
+    saveLocal();
+    return u;
+  },
+  async releaseWelcomeBonus(userId) {
+    if (useMongo) {
+      return User.findOneAndUpdate(
+        { _id: userId, completedDepositsCount: { $lte: 0 } },
+        { $set: { welcomeBonusClaimed: false } },
+        { new: true }
+      ).lean();
+    }
+    const u = localState.users.find((x) => String(x._id) === String(userId));
+    if (!u || Number(u.completedDepositsCount || 0) > 0) return null;
+    u.welcomeBonusClaimed = false;
+    saveLocal();
+    return u;
   },
   async claimReferralOnce(userId) {
     if (useMongo) {

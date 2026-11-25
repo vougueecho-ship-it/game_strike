@@ -46,6 +46,7 @@ interface InlineChatCardProps {
     payoutTag: string;
     balanceScreenshotUrl?: string;
     qrScreenshotUrl?: string;
+    gameBalance?: number;
   }) => void;
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
@@ -86,6 +87,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   const [activePayMethod, setActivePayMethod] = useState<PaymentGateway | null>(null);
   const [gameUser, setGameUser] = useState('');
   const [payoutTag, setPayoutTag] = useState('');
+  const [gameBalance, setGameBalance] = useState<number>(0);
   const [receiptUrl, setReceiptUrl] = useState('');
   const [senderTag, setSenderTag] = useState('');
   const [balanceShotUrl, setBalanceShotUrl] = useState('');
@@ -134,15 +136,21 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
         }}
       >
         <div className="inline-card-title"><span>Load from wallet · ${Number(user?.walletBalance || 0).toFixed(2)}</span></div>
+        {Number(user?.walletBalance || 0) <= 0 ? (
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Wallet is empty. Deposit first, then load the balance into the game.</p>
+        ) : (
+          <>
         <select className="field-input" value={game} onChange={(e) => setGame(e.target.value)}>
           {games.map((g) => (
             <option key={g.id} value={g.name}>{g.name}</option>
           ))}
         </select>
         <input className="field-input" placeholder="Game login ID" value={gameUser} onChange={(e) => setGameUser(e.target.value)} />
-        <input className="field-input" type="number" min={1} step="0.5" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} />
+        <input className="field-input" type="number" min={1} max={Number(user?.walletBalance || 0)} step="0.5" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} />
         {formErr && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{formErr}</p>}
-        <button className="btn-primary" type="submit" disabled={submitted}>Load ${amount || 0}</button>
+        <button className="btn-primary" type="submit" disabled={submitted || amount > Number(user?.walletBalance || 0)}>Load ${amount || 0}</button>
+          </>
+        )}
       </form>
     );
   }
@@ -195,7 +203,15 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   }
 
   if (message.card === 'deposit-form') {
-    const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
+    const welcomeAlreadyUsed =
+      Number(user?.completedDepositsCount || 0) > 0 ||
+      tickets.some(
+        (t) =>
+          t.type === 'deposit' &&
+          t.bonusType === 'Welcome Bonus' &&
+          t.status !== 'Rejected'
+      );
+    const isFirstDeposit = !welcomeAlreadyUsed;
     const bonusPct = isFirstDeposit
       ? Number(settings.welcomeBonusPercent || 0)
       : Number(settings.regularBonusPercent || 0);
@@ -449,10 +465,17 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
     }, 0);
     const bonusAdded = Math.max(0, credited - loaded);
     const multiplier = Number(settings.withdrawMultiplier || 3);
+    const freeplayCashout = credited <= 0;
+    const minGame = Number(settings.freeplayMinGameBalance ?? 120);
+    const cashoutPercent = Number(settings.freeplayCashoutPercent ?? 10);
+    const enteredBalance = Number(gameBalance) || 0;
+    const balanceShort = Number(Math.max(0, minGame - enteredBalance).toFixed(2));
+    const allowedCashout =
+      enteredBalance >= minGame ? Number(((enteredBalance * cashoutPercent) / 100).toFixed(2)) : 0;
     const minWd =
       credited > 0
         ? Number((credited * multiplier).toFixed(2))
-        : Number(settings.minWithdrawFallback || 20);
+        : 0;
     const typedAmount = Number(amount) || 0;
     const stillNeeded = Number(Math.max(0, minWd - typedAmount).toFixed(2));
 
@@ -471,13 +494,13 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             <ArrowUpCircle size={18} color="#22c55e" />
             <span>Manual Cashout / Withdraw</span>
           </div>
-          <span className="status-pill verified">Min ${minWd}</span>
+          <span className="status-pill verified">{freeplayCashout ? `${cashoutPercent}%` : `Min $${minWd}`}</span>
         </div>
 
         <div className="ticket-mini" style={{ marginBottom: 10, padding: '8px 10px', fontSize: '0.75rem', color: '#ffd166' }}>
-          {credited > 0
-            ? `You loaded $${loaded.toFixed(2)} on ${game}. The bonus added $${bonusAdded.toFixed(2)}, so that is $${credited.toFixed(2)}. At ${multiplier}x, your minimum cashout is $${minWd.toFixed(2)}.`
-            : `No completed load on ${game} yet. Minimum cashout is $${minWd.toFixed(2)}.`}
+          {freeplayCashout
+            ? `Freeplay cashout: get ${game} to at least $${minGame.toFixed(2)}. After that you can cash out ${cashoutPercent}% of that balance.`
+            : `You loaded $${loaded.toFixed(2)} on ${game}. The bonus added $${bonusAdded.toFixed(2)}, so that is $${credited.toFixed(2)}. At ${multiplier}x, your minimum cashout is $${minWd.toFixed(2)}.`}
         </div>
 
         <div className="field-group" style={{ marginBottom: 9 }}>
@@ -525,11 +548,30 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               onChange={(e) => setAmount(Number(e.target.value) || 0)}
               disabled={submitted}
             />
-            {stillNeeded > 0 && (
+            {freeplayCashout ? (
+              <div className="field-group" style={{ marginTop: 8, marginBottom: 0 }}>
+                <label className="field-label">Game balance ($)</label>
+                <input
+                  className="field-input mono"
+                  style={{ padding: '8px 10px', fontSize: '0.84rem' }}
+                  type="number"
+                  min={0}
+                  value={gameBalance || ''}
+                  placeholder={String(minGame)}
+                  onChange={(e) => setGameBalance(Number(e.target.value) || 0)}
+                  disabled={submitted}
+                />
+                <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#ffd166' }}>
+                  {enteredBalance < minGame
+                    ? `The game still needs $${balanceShort.toFixed(2)} more. It has to reach $${minGame.toFixed(2)} before you can cash out.`
+                    : `You can cash out $${allowedCashout.toFixed(2)}, which is ${cashoutPercent}% of your $${enteredBalance.toFixed(2)} balance.`}
+                </p>
+              </div>
+            ) : stillNeeded > 0 ? (
               <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#ffd166' }}>
                 You still need ${stillNeeded.toFixed(2)} more, then you can cash out.
               </p>
-            )}
+            ) : null}
           </div>
           <div className="field-group" style={{ marginBottom: 0 }}>
             <label className="field-label">Payout Method</label>
@@ -605,7 +647,16 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           disabled={submitted}
           onClick={() => {
             const finalAmt = Number(amount) || 0;
-            if (finalAmt < minWd) {
+            if (freeplayCashout) {
+              if (enteredBalance < minGame) {
+                setFormErr(`The game still needs $${balanceShort.toFixed(2)} more. It has to reach $${minGame.toFixed(2)} before you can cash out.`);
+                return;
+              }
+              if (finalAmt <= 0 || finalAmt > allowedCashout) {
+                setFormErr(`You can cash out $${allowedCashout.toFixed(2)}, which is ${cashoutPercent}% of your balance.`);
+                return;
+              }
+            } else if (finalAmt < minWd) {
               setFormErr(`You still need $${stillNeeded.toFixed(2)} more, then you can cash out.`);
               return;
             }
@@ -627,6 +678,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               payoutTag: payoutTag.trim() || 'See Attached QR',
               balanceScreenshotUrl: balanceShotUrl,
               qrScreenshotUrl: qrShotUrl,
+              gameBalance: freeplayCashout ? enteredBalance : undefined,
             });
           }}
         >
@@ -748,7 +800,15 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   }
 
   if (message.card === 'payment-methods') {
-    const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
+    const welcomeAlreadyUsed =
+      Number(user?.completedDepositsCount || 0) > 0 ||
+      tickets.some(
+        (t) =>
+          t.type === 'deposit' &&
+          t.bonusType === 'Welcome Bonus' &&
+          t.status !== 'Rejected'
+      );
+    const isFirstDeposit = !welcomeAlreadyUsed;
     const bonusPct = isFirstDeposit
       ? Number(settings.welcomeBonusPercent || 0)
       : Number(settings.regularBonusPercent || 0);

@@ -35,6 +35,7 @@ const userSchema = new mongoose.Schema(
     referralCount: { type: Number, default: 0 },
     referralBonusEarned: { type: Number, default: 0 },
     walletBalance: { type: Number, default: 0 },
+    welcomeBonusClaimed: { type: Boolean, default: false },
     freeplayClaimed: { type: Boolean, default: false },
     pushSubscriptions: [pushSubscriptionSchema],
     fcmTokens: [{ type: String }],

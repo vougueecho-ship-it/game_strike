@@ -41,15 +41,18 @@ export function cashoutRule(tickets, game, multiplier, fallback) {
   };
 }
 
+function describeFreeplayCashout(facts) {
+  const minGame = Number(facts.bonuses?.freeplayMinGameBalance ?? 120);
+  const pct = Number(facts.bonuses?.freeplayCashoutPercent ?? 10);
+  return `Freeplay cashout: get the game balance to at least $${minGame.toFixed(2)}. After that you can cash out ${pct}% of that balance.`;
+}
+
 export function describeCashoutMinimum(facts, game) {
   const loads = facts.gameLoads || [];
   const mult = Number(facts.bonuses?.withdrawMultiplier || 3);
-  const fallback = Number(facts.bonuses?.minimumWithdraw || 0);
   const wanted = String(game || '').trim().toLowerCase();
   const chosen = wanted ? loads.filter((load) => String(load.game || '').toLowerCase() === wanted) : loads;
-  if (!chosen.length) {
-    return `You don't have a completed load yet. Until then the minimum cashout is $${fallback.toFixed(2)}.`;
-  }
+  if (!chosen.length) return describeFreeplayCashout(facts);
   return chosen
     .map((load) => {
       const minimum = Number((load.total * mult).toFixed(2));
@@ -79,6 +82,8 @@ function siteFacts({ user, settings, games, gateways, tickets }) {
       dailyLabel: s.dailyBonusLabel || "Today's Bonus",
       dailyOffer: s.dailyOfferText || '',
       freeplayAmount: Number(s.freeplayAmount || 0),
+      freeplayMinGameBalance: Number(s.freeplayMinGameBalance ?? 120),
+      freeplayCashoutPercent: Number(s.freeplayCashoutPercent ?? 10),
       referralPercentOnce: Number(s.referralBonus || 0),
       withdrawMultiplier: Number(s.withdrawMultiplier || 0),
       minimumWithdraw: Number(s.minWithdrawFallback || 0),
@@ -266,6 +271,9 @@ function siteReply(text, facts, hasAttachment, check) {
       text: `Hey ${first}. Your wallet is $${wallet}. Live games right now: ${games}. Tell me if you want to deposit, load a game, or check a game.`,
       action: '',
     };
+  }
+  if (/freeplay|free play/.test(q) && /cash ?out|withdraw|\bmin/.test(q)) {
+    return { text: describeFreeplayCashout(facts), action: '' };
   }
   if (/cash ?out|withdraw/.test(q) && /\b(min|minimum|kitna|kitne|how much)\b/.test(q)) {
     return { text: describeCashoutMinimum(facts), action: '' };
@@ -511,7 +519,11 @@ export async function buildSupportReply({ user, message, settings, games, gatewa
     action: '',
   };
   const asking = check || isInfoQuestion(latestText);
-  const action = asking ? '' : (chosen.action || keywordAction(latestText));
+  const action = known
+    ? known.action
+    : asking
+      ? ''
+      : (generated?.action || keywordAction(latestText));
   const presentation = cardFor(action);
   return {
     text: chosen.text,

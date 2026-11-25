@@ -129,7 +129,11 @@ async function creditDepositToWallet(ticket) {
       threadId: 'concierge',
       sender: 'agent',
       agentName: 'GameStrike Wallet',
-      text: `$${credit.toFixed(2)} is in your wallet (deposit + bonus). Wallet balance: **$${Number(balance || 0).toFixed(2)}**. Load a game from this balance whenever you want. You cannot load more than your wallet.`,
+      text: `$${credit.toFixed(2)} is in your wallet (deposit + bonus). Wallet balance: **$${Number(balance || 0).toFixed(2)}**. Tap Load to send this balance into Juwa or Game Vault. Deposit is still there if you want to add more.`,
+      quickReplies: [
+        { label: 'Load into a game', action: 'load-game' },
+        { label: 'Deposit more', action: 'deposit' },
+      ],
     });
     io.to(`user:${player._id}`).emit('chat:message', msg);
     io.to(`user:${player._id}`).emit('wallet:updated', { walletBalance: balance });
@@ -439,6 +443,8 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       dailyBonusLabel,
       dailyOfferText,
       freeplayAmount,
+      freeplayMinGameBalance,
+      freeplayCashoutPercent,
       freeplayFromEmails,
       freeplayMailboxes,
     } = req.body;
@@ -471,6 +477,8 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       dailyBonusLabel: String(dailyBonusLabel || "Today's Bonus").slice(0, 80),
       dailyOfferText: String(dailyOfferText || '').slice(0, 180),
       freeplayAmount: Math.max(0, Number(freeplayAmount ?? 0)),
+      freeplayMinGameBalance: Math.max(0, Number(freeplayMinGameBalance ?? 120)),
+      freeplayCashoutPercent: Math.min(100, Math.max(0, Number(freeplayCashoutPercent ?? 10))),
       freeplayFromEmails: cleanedMailboxes.map((row) => row.email).join('\n').slice(0, 1000),
       freeplayMailboxes: cleanedMailboxes,
     });
@@ -1146,6 +1154,7 @@ app.post('/api/chat/message/:messageId/react', requireAuth, async (req, res) => 
 
 // DEPOSIT (SUPPORTS BOTH CASHTAP AUTO API AND MANUAL GATEWAYS LIKE CHIME WITH RECEIPT SCREENSHOT)
 app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
+  let welcomeLocked = false;
   try {
     const {
       game = 'GameStrike Wallet',
@@ -1167,8 +1176,18 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
     }
     const ticketId = `DEP-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // Auto-calculate Welcome Bonus (1st deposit ONLY) vs Regular Bonus (2nd+ deposits)
-    const isFirstDeposit = Number(user?.completedDepositsCount || 0) === 0;
+    const userTickets = await db.listTickets(req.auth.id);
+    const welcomeAlreadyOpen = userTickets.some(
+      (t) =>
+        t.type === 'deposit' &&
+        t.bonusType === 'Welcome Bonus' &&
+        !['Rejected', 'Cancelled'].includes(String(t.status || ''))
+    );
+    const claimedWelcome = welcomeAlreadyOpen
+      ? false
+      : Boolean(await db.claimWelcomeOnce(user._id));
+    welcomeLocked = claimedWelcome;
+    const isFirstDeposit = claimedWelcome;
     const bonusType = isFirstDeposit ? 'Welcome Bonus' : 'Regular Bonus';
     const bonusPercent = isFirstDeposit
       ? Number(settings.welcomeBonusPercent || 0)
@@ -1179,7 +1198,6 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
     const totalCredit = Number((numericAmount + bonusAmount + dailyBonusAmount).toFixed(2));
 
     // Automatically attach player's saved Game Login ID for this game so Admin knows exact account!
-    const userTickets = await db.listTickets(req.auth.id);
     const gameCred = userTickets.find(
       (t) =>
         t.type === 'game-id' &&
@@ -1194,12 +1212,14 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
 
     if (isManual) {
       if (!receiptScreenshotUrl) {
+        if (welcomeLocked) await db.releaseWelcomeBonus(user._id);
         return res.status(400).json({
           error: `Please upload your ${gw?.name || method} payment receipt screenshot before submitting.`,
         });
       }
       const playerTag = String(senderTag || '').trim();
       if (!playerTag) {
+        if (welcomeLocked) await db.releaseWelcomeBonus(user._id);
         return res.status(400).json({
           error: 'Enter the payment tag you sent the money from.',
         });
@@ -1332,7 +1352,9 @@ app.post('/api/tickets/deposit', requireAuth, async (req, res) => {
     io.to('admins').emit('ticket:created', ticket);
 
     res.status(201).json({ ticket, message: agentMsg, session });
+    welcomeLocked = false;
   } catch (err) {
+    if (welcomeLocked) await db.releaseWelcomeBonus(req.auth.id);
     res.status(err.status || 400).json({ error: err.message, code: err.code });
   }
 });
@@ -1487,15 +1509,33 @@ app.post('/api/tickets/withdraw', requireAuth, async (req, res) => {
       settings.withdrawMultiplier,
       settings.minWithdrawFallback
     );
-    const minRequired = rule.minimum;
 
-    if (!numericAmount || numericAmount < minRequired) {
-      const still = Number((minRequired - Number(numericAmount || 0)).toFixed(2));
-      return res.status(400).json({
-        error: rule.hasLoad
-          ? `Your minimum cashout on ${game} is $${minRequired.toFixed(2)} (${rule.multiplier}x of $${rule.total.toFixed(2)}). You still need $${still.toFixed(2)} more, then you can cash out.`
-          : `Your minimum cashout is $${minRequired.toFixed(2)}. You still need $${still.toFixed(2)} more, then you can cash out.`,
-      });
+    if (!rule.hasLoad) {
+      const minGame = Number(settings.freeplayMinGameBalance ?? 120);
+      const pct = Math.min(100, Math.max(0, Number(settings.freeplayCashoutPercent ?? 10)));
+      const gameBalance = Number(req.body.gameBalance);
+      if (!(gameBalance >= minGame)) {
+        const still = Number((minGame - Number(gameBalance || 0)).toFixed(2));
+        return res.status(400).json({
+          error: `Freeplay cashout needs at least $${minGame.toFixed(2)} in the game. You still need $${still.toFixed(2)} more.`,
+        });
+      }
+      const allowed = Number(((gameBalance * pct) / 100).toFixed(2));
+      if (!numericAmount || numericAmount > allowed) {
+        return res.status(400).json({
+          error: `You can cash out ${pct}% of your $${gameBalance.toFixed(2)} balance, which is $${allowed.toFixed(2)}.`,
+        });
+      }
+    } else {
+      const minRequired = rule.minimum;
+      if (!numericAmount || numericAmount < minRequired) {
+        const still = Number((minRequired - Number(numericAmount || 0)).toFixed(2));
+        return res.status(400).json({
+          error: rule.hasLoad
+            ? `Your minimum cashout on ${game} is $${minRequired.toFixed(2)} (${rule.multiplier}x of $${rule.total.toFixed(2)}). You still need $${still.toFixed(2)} more, then you can cash out.`
+            : `Your minimum cashout is $${minRequired.toFixed(2)}. You still need $${still.toFixed(2)} more, then you can cash out.`,
+        });
+      }
     }
 
     const ticketId = `WD-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1886,6 +1926,10 @@ app.patch('/api/admin/tickets/:ticketId', requireAdmin, async (req, res) => {
       extraFields
     );
     if (!updated) return res.status(404).json({ error: 'Ticket not found' });
+
+    if (status === 'Rejected' && updated.type === 'deposit' && updated.bonusType === 'Welcome Bonus') {
+      await db.releaseWelcomeBonus(updated.userId);
+    }
 
     if (status === 'Completed' && updated.type === 'deposit') {
       const playerRec = await db.findUserById(updated.userId);

@@ -142,6 +142,8 @@ export const App: React.FC = () => {
     dailyBonusLabel: "Today's Bonus",
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
+    freeplayMinGameBalance: 120,
+    freeplayCashoutPercent: 10,
     referralBonus: 10,
   });
 
@@ -507,10 +509,22 @@ export const App: React.FC = () => {
         card: 'bonuses',
       });
     } else if (action === 'load-game') {
-      pushAgentReply(targetThread, {
-        text: `Your wallet balance is **$${Number(user?.walletBalance || 0).toFixed(2)}**. Enter how much to load. It is sent through the game API and cannot be more than your wallet.`,
-        card: 'wallet-load',
-      });
+      const balance = Number(user?.walletBalance || 0);
+      if (balance <= 0) {
+        pushAgentReply(targetThread, {
+          text: 'Your wallet is **$0.00**, so there is nothing to load into a game yet. Deposit first. The deposit and bonus land in this wallet, then Load sends it to the game.',
+          card: 'deposit-form',
+          cardData: { preselectedGame },
+          quickReplies: [{ label: 'Deposit', action: 'deposit' }],
+        });
+      } else {
+        pushAgentReply(targetThread, {
+          text: `Your wallet has **$${balance.toFixed(2)}**. Enter the game login and how much to load. It cannot be more than the wallet. Deposit is still there if you want to add more.`,
+          card: 'wallet-load',
+          cardData: { preselectedGame },
+          quickReplies: [{ label: 'Deposit more', action: 'deposit' }],
+        });
+      }
     } else if (action === 'freeplay') {
       pushAgentReply(targetThread, {
         text: 'Freeplay is once per account. Do not mark the GameStrike email as spam. If it is in Spam, move it to Primary. Do not open the email. Screenshot the Primary inbox where the GameStrike email is sitting in the list, then upload that screenshot here.',
@@ -655,6 +669,7 @@ export const App: React.FC = () => {
     payoutTag: string;
     balanceScreenshotUrl?: string;
     qrScreenshotUrl?: string;
+    gameBalance?: number;
   }): Promise<{ error?: string } | void> => {
     if (!token) {
       navigate('chat');
@@ -915,6 +930,8 @@ export const App: React.FC = () => {
           handleClaimPromo(title, code);
         }}
         isLoggedIn={Boolean(user && token)}
+        user={user}
+        onLoadFromWallet={handleLoadWallet}
         onAuthenticate={handleAuthenticate}
       />
     );

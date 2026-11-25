@@ -51,6 +51,8 @@ interface GamesLandingPageProps {
   }) => Promise<{ error?: string } | void> | { error?: string } | void;
   onClaimPromoInChat: (title: string, code: string) => void;
   isLoggedIn: boolean;
+  user?: UserProfile | null;
+  onLoadFromWallet?: (data: { game: string; amount: number; gameUser: string }) => Promise<string | void>;
   onAuthenticate: (user: UserProfile, isNewSignup: boolean, authToken?: string | null) => void;
 }
 
@@ -116,6 +118,8 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   onSubmitWithdrawFromPage,
   onClaimPromoInChat,
   isLoggedIn,
+  user,
+  onLoadFromWallet,
   onAuthenticate,
 }) => {
   const [search, setSearch] = useState('');
@@ -142,6 +146,10 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [loadOpen, setLoadOpen] = useState(false);
+  const [loadAmount, setLoadAmount] = useState(20);
+  const [loadGameUser, setLoadGameUser] = useState('');
+  const walletBalance = Number(user?.walletBalance || 0);
 
   const requireLogin = () => {
     setAuthOpen(true);
@@ -221,6 +229,24 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
     setErrorMsg(null);
     setCheckoutUrl(null);
     setCashierOpen(true);
+  };
+
+  const openLoad = (gameName: string) => {
+    if (!isLoggedIn) {
+      requireLogin();
+      return;
+    }
+    setSelectedGame(gameName);
+    if (walletBalance <= 0) {
+      setToastMsg('Wallet is $0.00. Deposit first, then load that balance into the game.');
+      setWalletTab('deposit');
+      setCashierOpen(true);
+      return;
+    }
+    setLoadAmount(Math.min(20, walletBalance));
+    setLoadGameUser('');
+    setErrorMsg(null);
+    setLoadOpen(true);
   };
 
   const handleWalletSubmit = async (e: React.FormEvent) => {
@@ -592,10 +618,19 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                             type="button"
                             className="nx-btn-crimson"
                             style={{ flex: 1, padding: '9px 10px', fontSize: '0.8rem' }}
-                            onClick={() => openCashier('deposit', game.name)}
+                            onClick={() => openLoad(game.name)}
                           >
                             <Zap size={14} />
-                            <span>Play / Load</span>
+                            <span>{walletBalance > 0 ? `Load $${walletBalance.toFixed(0)}` : 'Load'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="nx-btn-glass"
+                            style={{ padding: '9px 12px', fontSize: '0.78rem' }}
+                            onClick={() => openCashier('deposit', game.name)}
+                          >
+                            <ArrowDownCircle size={14} />
+                            <span>Deposit</span>
                           </button>
                           <button
                             type="button"
@@ -854,6 +889,66 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
         </button>
       </nav>
 
+      {/* LOAD FROM WALLET */}
+      {loadOpen && (
+        <div className="cashier-backdrop" onClick={() => setLoadOpen(false)}>
+          <div className="cashier-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="cashier-modal-head">
+              <div>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.08rem' }}>
+                  Load {selectedGame}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Wallet ${walletBalance.toFixed(2)}. Deposit stays open if you want to add more.
+                </div>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => setLoadOpen(false)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <form
+              className="cashier-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!onLoadFromWallet) return;
+                if (loadAmount <= 0 || loadAmount > walletBalance) {
+                  setErrorMsg(`Enter an amount up to $${walletBalance.toFixed(2)}.`);
+                  return;
+                }
+                setSubmitting(true);
+                setErrorMsg(null);
+                try {
+                  const note = await onLoadFromWallet({
+                    game: selectedGame,
+                    amount: loadAmount,
+                    gameUser: loadGameUser.trim(),
+                  });
+                  if (note) setErrorMsg(note);
+                  else {
+                    setToastMsg(`Loaded $${loadAmount.toFixed(2)} to ${selectedGame}.`);
+                    setLoadOpen(false);
+                  }
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <label className="field-label">Game login ID</label>
+              <input className="field-input" value={loadGameUser} onChange={(e) => setLoadGameUser(e.target.value)} placeholder="Your game username" />
+              <label className="field-label">Amount</label>
+              <input className="field-input" type="number" min={1} max={walletBalance} step="0.5" value={loadAmount} onChange={(e) => setLoadAmount(Number(e.target.value) || 0)} />
+              {errorMsg && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{errorMsg}</p>}
+              <button className="btn-primary" type="submit" disabled={submitting}>
+                {submitting ? 'Loading…' : `Load $${Number(loadAmount || 0).toFixed(2)}`}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => { setLoadOpen(false); openCashier('deposit', selectedGame); }}>
+                Deposit more
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* GLASSMORPHIC CASHIER MODAL */}
       {cashierOpen && (
         <div className="cashier-backdrop" onClick={() => setCashierOpen(false)}>
@@ -975,6 +1070,11 @@ export const GamesLandingPage: React.FC<GamesLandingPageProps> = ({
                     onChange={(e) => setAmount(Number(e.target.value) || 1)}
                     required
                   />
+                  {walletTab === 'withdraw' && (
+                    <p style={{ margin: '8px 0 0', fontSize: '0.78rem', color: '#ffd166' }}>
+                      Freeplay cashout: game balance must reach ${Number(settings.freeplayMinGameBalance ?? 120).toFixed(0)}. Then you can cash out {Number(settings.freeplayCashoutPercent ?? 10)}% of that balance.
+                    </p>
+                  )}
                 </div>
 
                 <div className="field-group">

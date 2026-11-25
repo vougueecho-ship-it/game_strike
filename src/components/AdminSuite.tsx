@@ -115,6 +115,8 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     dailyBonusLabel: "Today's Bonus",
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
+    freeplayMinGameBalance: 120,
+    freeplayCashoutPercent: 10,
     freeplayFromEmails: '',
     freeplayMailboxes: [] as { email: string; password: string }[],
   });
@@ -1964,26 +1966,27 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Freeplay Min Cashout ($)</label>
+                    <label className="field-label">Freeplay minimum game balance ($)</label>
                     <input
                       className="field-input mono"
                       type="number"
-                      min={5}
-                      value={rules.freeplayMinWithdraw || 30}
+                      min={0}
+                      value={rules.freeplayMinGameBalance ?? 120}
                       onChange={(e) =>
-                        setRules({ ...rules, freeplayMinWithdraw: Number(e.target.value) || 30 })
+                        setRules({ ...rules, freeplayMinGameBalance: Number(e.target.value) || 0 })
                       }
                     />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Freeplay Max Cashout Cap ($)</label>
+                    <label className="field-label">Freeplay cashout % of that game balance</label>
                     <input
                       className="field-input mono"
                       type="number"
-                      min={10}
-                      value={rules.freeplayMaxWithdraw || 100}
+                      min={0}
+                      max={100}
+                      value={rules.freeplayCashoutPercent ?? 10}
                       onChange={(e) =>
-                        setRules({ ...rules, freeplayMaxWithdraw: Number(e.target.value) || 100 })
+                        setRules({ ...rules, freeplayCashoutPercent: Number(e.target.value) || 0 })
                       }
                     />
                   </div>

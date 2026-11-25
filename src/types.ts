@@ -15,6 +15,8 @@ export interface PlatformSettings {
   dailyBonusLabel?: string;
   dailyOfferText?: string;
   freeplayAmount?: number;
+  freeplayMinGameBalance?: number;
+  freeplayCashoutPercent?: number;
   freeplayFromEmails?: string;
 }
 
