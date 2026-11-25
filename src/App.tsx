@@ -8,6 +8,7 @@ import {
   createRealtimeSocket,
   enableLockScreenPush,
   enableNativePushOnLaunch,
+  isUnauthorized,
 } from './services/api';
 import {
   ChatMessage,
@@ -145,6 +146,7 @@ export const App: React.FC = () => {
   });
 
   const socketRef = useRef<ReturnType<typeof createRealtimeSocket> | null>(null);
+  const expireSessionRef = useRef<() => void>(() => {});
 
   // Load live API-connected games, CashTap + Manual gateways & platform bonus/withdraw settings
   useEffect(() => {
@@ -213,7 +215,9 @@ export const App: React.FC = () => {
       .then((res) => {
         if (res.user) setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (isUnauthorized(err)) expireSessionRef.current();
+      });
 
     apiFetch<{ messages: any[]; tickets: any[] }>('/api/chat/history', {}, token)
       .then((res) => {
@@ -224,12 +228,16 @@ export const App: React.FC = () => {
           setTickets(res.tickets.map(mapServerTicket));
         }
       })
-      .catch(() => {
-        // Offline / local fallback mode works seamlessly
+      .catch((err) => {
+        if (isUnauthorized(err)) expireSessionRef.current();
       });
 
     const socket = createRealtimeSocket(token);
     socketRef.current = socket;
+
+    socket.on('auth:expired', () => {
+      expireSessionRef.current();
+    });
 
     socket.on('chat:message', (raw: any) => {
       const mapped = mapServerMsg(raw);
@@ -385,6 +393,12 @@ export const App: React.FC = () => {
     navigate('chat');
   };
 
+  const expireSession = () => {
+    sessionStorage.setItem('gs_session_notice', 'Your session expired. Sign in again, then send the message.');
+    handleSignOut();
+  };
+  expireSessionRef.current = expireSession;
+
   const handleEnablePush = async () => {
     if (!token) {
       if ('Notification' in window) {
@@ -532,7 +546,9 @@ export const App: React.FC = () => {
           }),
         },
         token
-      ).catch(() => {});
+      ).catch((err) => {
+        if (isUnauthorized(err)) expireSession();
+      });
     } else {
       const userMsg: ChatMessage = {
         id: uid(),

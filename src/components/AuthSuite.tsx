@@ -58,9 +58,10 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
   }, [variant, onClose]);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('gs_google_error');
+    const saved = sessionStorage.getItem('gs_google_error') || sessionStorage.getItem('gs_session_notice');
     if (!saved) return;
     sessionStorage.removeItem('gs_google_error');
+    sessionStorage.removeItem('gs_session_notice');
     setErrorMsg(saved);
   }, []);
 

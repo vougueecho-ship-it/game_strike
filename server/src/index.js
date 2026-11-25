@@ -2106,7 +2106,7 @@ io.on('connection', (socket) => {
       if (payload.role === 'admin') socket.join('admins');
       else socket.join(`user:${payload.id}`);
     } catch {
-      // ignore invalid socket token
+      socket.emit('auth:expired');
     }
   });
 
