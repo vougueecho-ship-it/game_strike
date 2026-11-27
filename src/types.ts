@@ -17,6 +17,7 @@ export interface PlatformSettings {
   freeplayAmount?: number;
   freeplayMinGameBalance?: number;
   freeplayCashoutPercent?: number;
+  freeplayDepositsBetweenClaims?: number;
   freeplayFromEmails?: string;
 }
 
@@ -40,6 +41,31 @@ export interface UserProfile {
   referralBonusEarned?: number;
   walletBalance?: number;
   freeplayClaimed?: boolean;
+  freeplayClaimCount?: number;
+  depositsSinceLastFreeplay?: number;
+  lastClientPlatform?: string;
+  lastBrowserLabel?: string;
+  lastUserAgent?: string;
+  deviceId?: string;
+  deviceFingerprint?: string;
+  registrationIp?: string;
+  stats?: {
+    depositsCompleted?: number;
+    depositsPending?: number;
+    withdrawsCompleted?: number;
+    withdrawsPending?: number;
+    freeplayTickets?: number;
+    gameIds?: number;
+  };
+  recentTickets?: Array<{
+    ticketId: string;
+    type: string;
+    status: string;
+    amount?: number;
+    totalCredit?: number;
+    game?: string;
+    createdAt?: string;
+  }>;
 }
 
 export interface GameItem {

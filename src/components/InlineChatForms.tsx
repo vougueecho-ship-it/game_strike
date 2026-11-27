@@ -51,8 +51,7 @@ interface InlineChatCardProps {
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
   onClaimPromo: (promoTitle: string, code: string) => void;
-  onLoadWallet?: (data: { game: string; amount: number; gameUser: string }) => Promise<string | void>;
-  onSubmitFreeplay?: (screenshot: string) => Promise<void>;
+  onSubmitFreeplay?: (data: { screenshot: string; game: string }) => Promise<void>;
   onSyncCashTap?: (ticketId: string) => void;
 }
 
@@ -73,13 +72,12 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   onSubmitGameId,
   onSubmitIssue,
   onClaimPromo,
-  onLoadWallet,
   onSubmitFreeplay,
   onSyncCashTap,
 }) => {
   const defaultGame =
     message.cardData?.preselectedGame ||
-    (games.length > 0 ? games[0].name : 'GameStrike Wallet');
+    (games.length > 0 ? games[0].name : '');
 
   const [game, setGame] = useState(defaultGame);
   const [amount, setAmount] = useState<number>(20);
@@ -118,43 +116,6 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
   const selectedGateway =
     gateways.find((g) => g.id === methodId) || gateways[0];
 
-  if (message.card === 'wallet-load') {
-    return (
-      <form
-        className="inline-card"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (!onLoadWallet) return;
-          setFormErr('');
-          setSubmitted(true);
-          try {
-            const note = await onLoadWallet({ game, amount, gameUser });
-            if (note) setFormErr(note);
-          } finally {
-            setSubmitted(false);
-          }
-        }}
-      >
-        <div className="inline-card-title"><span>Load from wallet · ${Number(user?.walletBalance || 0).toFixed(2)}</span></div>
-        {Number(user?.walletBalance || 0) <= 0 ? (
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Wallet is empty. Deposit first, then load the balance into the game.</p>
-        ) : (
-          <>
-        <select className="field-input" value={game} onChange={(e) => setGame(e.target.value)}>
-          {games.map((g) => (
-            <option key={g.id} value={g.name}>{g.name}</option>
-          ))}
-        </select>
-        <input className="field-input" placeholder="Game login ID" value={gameUser} onChange={(e) => setGameUser(e.target.value)} />
-        <input className="field-input" type="number" min={1} max={Number(user?.walletBalance || 0)} step="0.5" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} />
-        {formErr && <p style={{ color: '#f87171', fontSize: '0.78rem' }}>{formErr}</p>}
-        <button className="btn-primary" type="submit" disabled={submitted || amount > Number(user?.walletBalance || 0)}>Load ${amount || 0}</button>
-          </>
-        )}
-      </form>
-    );
-  }
-
   if (message.card === 'freeplay-task') {
     return (
       <form
@@ -165,9 +126,13 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             setFormErr('Upload the Primary inbox screenshot.');
             return;
           }
+          if (!game) {
+            setFormErr('Pick which game freeplay should load on.');
+            return;
+          }
           setSubmitted(true);
           try {
-            await onSubmitFreeplay(receiptUrl);
+            await onSubmitFreeplay({ screenshot: receiptUrl, game });
           } catch (err) {
             setFormErr((err as Error).message);
             setSubmitted(false);
@@ -179,8 +144,13 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
           <span>Freeplay screenshot</span>
         </div>
         <p className="inbox-note">
-          Screenshot the Primary inbox list. The GameStrike email should be visible. Do not open it, and do not mark it as spam.
+          Screenshot the Primary inbox list. The GameStrike email should be visible. Do not open it, and do not mark it as spam. Freeplay loads on the game you pick (Game ID required).
         </p>
+        <select className="field-input" value={game} onChange={(e) => setGame(e.target.value)}>
+          {games.map((g) => (
+            <option key={g.id} value={g.name}>{g.name}</option>
+          ))}
+        </select>
         <label className={`inbox-drop${receiptUrl ? ' ready' : ''}`}>
           {receiptUrl ? (
             <img src={receiptUrl} alt="Inbox screenshot preview" />
@@ -243,7 +213,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             disabled={submitted}
           >
             {games.length === 0 ? (
-              <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+              <option value="">No live games</option>
             ) : (
               games.map((g) => (
                 <option key={g.id} value={g.name}>
@@ -492,7 +462,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
         <div className="inline-card-header">
           <div className="inline-card-title">
             <ArrowUpCircle size={18} color="#22c55e" />
-            <span>Manual Cashout / Withdraw</span>
+            <span>Cashout</span>
           </div>
           <span className="status-pill verified">{freeplayCashout ? `${cashoutPercent}%` : `Min $${minWd}`}</span>
         </div>
@@ -513,7 +483,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             disabled={submitted}
           >
             {games.length === 0 ? (
-              <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+              <option value="">No live games</option>
             ) : (
               games.map((g) => (
                 <option key={g.id} value={g.name}>
@@ -856,7 +826,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               disabled={submitted}
             >
               {games.length === 0 ? (
-                <option value="GameStrike Wallet">GameStrike Wallet Balance</option>
+                <option value="">No live games</option>
               ) : (
                 games.map((g) => (
                   <option key={g.id} value={g.name}>
@@ -1254,7 +1224,7 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
               onChange={(e) => setGame(e.target.value)}
               disabled={submitted}
             >
-              <option value="">General / Wallet</option>
+              <option value="">General</option>
               {games.map((g) => (
                 <option key={g.id} value={g.name}>
                   {g.name}

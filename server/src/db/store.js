@@ -185,6 +185,7 @@ const DEFAULT_SETTINGS = {
   freeplayAmount: 5,
   freeplayMinGameBalance: 120,
   freeplayCashoutPercent: 10,
+  freeplayDepositsBetweenClaims: 15,
   freeplayFromEmails: '',
   freeplayMailboxes: [],
 };
@@ -816,29 +817,35 @@ export const db = {
   },
 
   // DEVICE BLOCK & ACCOUNT SUSPENSION (WINNING HEAVEN STYLE)
-  async isDeviceBlocked({ deviceId, deviceFingerprint, ip }) {
+  async findDeviceBlock({ deviceId, deviceFingerprint, ip }) {
     const dId = String(deviceId || '').trim();
     const dFp = String(deviceFingerprint || '').trim();
     const userIp = String(ip || '').trim();
-    if (!dId && !dFp && !userIp) return false;
+    if (!dId && !dFp && !userIp) return null;
 
     if (useMongo) {
       const orConditions = [];
       if (dId) orConditions.push({ deviceId: dId });
       if (dFp) orConditions.push({ deviceFingerprint: dFp });
       if (userIp && userIp !== '127.0.0.1' && userIp !== '::1') orConditions.push({ ip: userIp });
-
-      if (orConditions.length === 0) return false;
-      const found = await BlockedDevice.findOne({ $or: orConditions }).lean();
-      return Boolean(found);
+      if (orConditions.length === 0) return null;
+      return BlockedDevice.findOne({ $or: orConditions }).lean();
     }
 
-    return (localState.blockedDevices || []).some((b) => {
+    return (localState.blockedDevices || []).find((b) => {
       if (dId && b.deviceId === dId) return true;
       if (dFp && b.deviceFingerprint === dFp) return true;
       if (userIp && userIp !== '127.0.0.1' && b.ip === userIp) return true;
       return false;
-    });
+    }) || null;
+  },
+
+  async isDeviceBlocked({ deviceId, deviceFingerprint, ip }) {
+    const dId = String(deviceId || '').trim();
+    const dFp = String(deviceFingerprint || '').trim();
+    const userIp = String(ip || '').trim();
+    const found = await this.findDeviceBlock({ deviceId, deviceFingerprint, ip });
+    return Boolean(found);
   },
 
   async blockDevice({ deviceId, deviceFingerprint, ip, reason = 'Administrative block' }) {

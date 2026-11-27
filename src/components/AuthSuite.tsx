@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { apiFetch } from '../services/api';
+import { getClientDevicePayload } from '../utils/clientDevice';
 import { UserProfile } from '../types';
 
 interface AuthSuiteProps {
@@ -63,6 +64,20 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
     sessionStorage.removeItem('gs_google_error');
     sessionStorage.removeItem('gs_session_notice');
     setErrorMsg(saved);
+  }, []);
+
+  useEffect(() => {
+    const payload = getClientDevicePayload();
+    apiFetch<{ blocked?: boolean; reason?: string }>('/api/device/check', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+      .then((res) => {
+        if (res.blocked) {
+          setErrorMsg(res.reason || 'This device cannot use GameStrike.');
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Load Google Client ID. Sign-in itself uses the same popup flow as Winning Heaven.
@@ -276,6 +291,7 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
               password,
               otp: otp.trim(),
               referredBy: referralCode.trim(),
+              ...getClientDevicePayload(),
             }),
           }
         );
@@ -295,7 +311,7 @@ export const AuthSuite: React.FC<AuthSuiteProps> = ({
       }
       const res = await apiFetch<{ token: string; user: UserProfile }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ contact: email, password: pass }),
+        body: JSON.stringify({ contact: email, password: pass, ...getClientDevicePayload() }),
       });
       onAuthenticate(res.user, false, res.token);
     } catch (err: any) {

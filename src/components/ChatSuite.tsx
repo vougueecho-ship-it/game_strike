@@ -84,8 +84,7 @@ interface ChatSuiteProps {
   onSubmitGameId: (game: string) => void;
   onSubmitIssue?: (data: { category: string; game: string; referenceId: string; details: string }) => void;
   onClaimPromo: (title: string, code: string) => void;
-  onLoadWallet?: (data: { game: string; amount: number; gameUser: string }) => Promise<string | void>;
-  onSubmitFreeplay?: (screenshot: string) => Promise<void>;
+  onSubmitFreeplay?: (data: { screenshot: string; game: string }) => Promise<void>;
   onSyncCashTap?: (ticketId: string) => void;
   onOpenGamesPage: () => void;
   onEnablePush?: () => void;
@@ -116,7 +115,6 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
   onSubmitGameId,
   onSubmitIssue,
   onClaimPromo,
-  onLoadWallet,
   onSubmitFreeplay,
   onSyncCashTap,
   onOpenGamesPage,
@@ -312,7 +310,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
             className="thread-item"
             onClick={() => {
               onSelectThread('concierge');
-              onTriggerAction(Number(user.walletBalance || 0) > 0 ? 'load-game' : 'deposit');
+              onTriggerAction('deposit');
               setMobileMenuOpen(false);
             }}
           >
@@ -321,13 +319,13 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
             </div>
             <div className="thread-meta">
               <div className="thread-meta-top">
-                <span className="thread-name">Wallet</span>
-                <span className="thread-pill">${Number(user.walletBalance || 0).toFixed(2)}</span>
+                <span className="thread-name">Deposit</span>
+                <span className="thread-pill">{user.id}</span>
               </div>
               <div className="thread-preview">
-                {Number(user.walletBalance || 0) > 0
-                  ? 'Load this balance into a game, or deposit more'
-                  : 'Wallet is empty. Deposit to get a balance'}
+                {Number(user.completedDepositsCount || 0) > 0
+                  ? `${user.completedDepositsCount} completed deposit${Number(user.completedDepositsCount) === 1 ? '' : 's'}`
+                  : 'Pick a game — deposit + bonus loads on that game'}
               </div>
             </div>
           </button>
@@ -369,7 +367,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
               <ShieldCheck size={15} color="#10b981" />
               <span>Direct Gaming Concierge</span>
             </div>
-            Ask for Game IDs, instant deposits, fast cashouts, or bonuses right inside chat. Want to browse all games? Click <strong>Games & Wallet</strong> at the top.
+            Ask for Game IDs, instant deposits, fast cashouts, or bonuses right inside chat. Want to browse all games? Click <strong>Games</strong> at the top.
           </div>
 
           {/* Mobile App Download Button (Android APK + iOS) */}
@@ -475,7 +473,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 <span>
                   {isTyping
                     ? 'Live Agent is typing...'
-                    : `Wallet $${Number(user.walletBalance || 0).toFixed(2)} • Online`}
+                    : `${user.id} • Online`}
                 </span>
               </div>
             </div>
@@ -513,7 +511,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
               title="Open dedicated Games, Deposits & Withdrawals page"
             >
               <Gamepad2 size={15} />
-              <span>Games &amp; Wallet</span>
+              <span>Games</span>
               <ArrowUpRight size={14} />
             </button>
 
@@ -711,7 +709,6 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                         onSubmitGameId={onSubmitGameId}
                         onSubmitIssue={onSubmitIssue}
                         onClaimPromo={onClaimPromo}
-                        onLoadWallet={onLoadWallet}
                         onSubmitFreeplay={onSubmitFreeplay}
                         onSyncCashTap={onSyncCashTap}
                       />
@@ -766,14 +763,6 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
         {/* Bottom Composer */}
         <footer className="chat-composer-wrap">
           <div className="composer-shortcut-bar">
-            <button
-              type="button"
-              className="composer-shortcut-btn"
-              onClick={() => onTriggerAction('load-game')}
-            >
-              <Wallet size={13} color="#ffd166" />
-              Load
-            </button>
             <button
               type="button"
               className="composer-shortcut-btn"
@@ -1044,7 +1033,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
           </div>
 
           <div className="details-card">
-            <div className="details-title">Games & Wallet Page</div>
+            <div className="details-title">Games</div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>
               Explore all 12+ games, compare payment gateways, or submit direct loads and cashouts.
             </p>
@@ -1066,7 +1055,7 @@ export const ChatSuite: React.FC<ChatSuiteProps> = ({
                 <div className="details-title" style={{ marginBottom: 4 }}>Referral bonus</div>
                 <p>
                   Share your link. When their deposit succeeds, you get{' '}
-                  <strong>{Number(settings?.referralBonus ?? 10)}%</strong> of it in your wallet. Once per friend.
+                  <strong>{Number(settings?.referralBonus ?? 10)}%</strong> of that deposit (referral ledger). Once per friend.
                 </p>
               </div>
               <strong className="refer-pct">{Number(settings?.referralBonus ?? 10)}%</strong>

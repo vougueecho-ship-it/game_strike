@@ -22,6 +22,7 @@ import {
 } from './types';
 import { PAYMENT_GATEWAYS as DEFAULT_GATEWAYS } from './data/catalog';
 import { paymentMethodName } from './data/catalog';
+import { getClientDevicePayload } from './utils/clientDevice';
 
 const STORAGE_USER_KEY = 'gamestrike_user_v1';
 const STORAGE_TOKEN_KEY = 'gamestrike_token_v1';
@@ -33,6 +34,13 @@ const nowTime = () =>
   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+function withoutSiteWallet(profile: UserProfile): UserProfile {
+  if (profile.role === 'admin') return profile;
+  const next = { ...profile };
+  delete next.walletBalance;
+  return next;
+}
 
 function parseRouteFromHash(): RouteView {
   if (window.location.hash === '#/games') return 'games';
@@ -202,6 +210,19 @@ export const App: React.FC = () => {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
+    const payload = getClientDevicePayload();
+    apiFetch<{ blocked?: boolean; reason?: string }>('/api/device/check', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+      .then((res) => {
+        if (res.blocked) expireSessionRef.current();
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
     localStorage.setItem(STORAGE_MSGS_KEY, JSON.stringify(messages));
   }, [messages]);
 
@@ -215,7 +236,10 @@ export const App: React.FC = () => {
 
     apiFetch<{ user: UserProfile }>('/api/auth/me', {}, token)
       .then((res) => {
-        if (res.user) setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
+        if (res.user) {
+          const fresh = withoutSiteWallet(res.user);
+          setUser((prev) => (prev ? withoutSiteWallet({ ...prev, ...fresh }) : fresh));
+        }
       })
       .catch((err) => {
         if (isUnauthorized(err)) expireSessionRef.current();
@@ -241,6 +265,10 @@ export const App: React.FC = () => {
       expireSessionRef.current();
     });
 
+    socket.on('auth:revoked', () => {
+      expireSessionRef.current();
+    });
+
     socket.on('chat:message', (raw: any) => {
       const mapped = mapServerMsg(raw);
       setMessages((prev) => (prev.some((m) => m.id === mapped.id) ? prev : [...prev, mapped]));
@@ -261,12 +289,11 @@ export const App: React.FC = () => {
       setMessages([]);
     });
 
-    socket.on('wallet:updated', (payload: { walletBalance?: number; referralBonusEarned?: number; referralCount?: number }) => {
+    socket.on('wallet:updated', (payload: { referralBonusEarned?: number; referralCount?: number }) => {
       setUser((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          walletBalance: typeof payload?.walletBalance === 'number' ? payload.walletBalance : prev.walletBalance,
           referralBonusEarned: typeof payload?.referralBonusEarned === 'number' ? payload.referralBonusEarned : prev.referralBonusEarned,
           referralCount: typeof payload?.referralCount === 'number' ? payload.referralCount : prev.referralCount,
         };
@@ -295,7 +322,7 @@ export const App: React.FC = () => {
     providedToken?: string | null
   ) => {
     if (!providedToken) return;
-    setUser(profile);
+    setUser(withoutSiteWallet(profile));
     setToken(providedToken);
     setActiveThread('concierge');
     navigate('chat');
@@ -368,7 +395,7 @@ export const App: React.FC = () => {
           );
           window.close();
         }
-        setUser(res.user);
+        setUser(withoutSiteWallet(res.user));
         setToken(res.token);
         setActiveThread('concierge');
         navigate('chat');
@@ -508,23 +535,6 @@ export const App: React.FC = () => {
         text: 'Here are the active GameStrike.io promotions available for your account:',
         card: 'bonuses',
       });
-    } else if (action === 'load-game') {
-      const balance = Number(user?.walletBalance || 0);
-      if (balance <= 0) {
-        pushAgentReply(targetThread, {
-          text: 'Your wallet is **$0.00**, so there is nothing to load into a game yet. Deposit first. The deposit and bonus land in this wallet, then Load sends it to the game.',
-          card: 'deposit-form',
-          cardData: { preselectedGame },
-          quickReplies: [{ label: 'Deposit', action: 'deposit' }],
-        });
-      } else {
-        pushAgentReply(targetThread, {
-          text: `Your wallet has **$${balance.toFixed(2)}**. Enter the game login and how much to load. It cannot be more than the wallet. Deposit is still there if you want to add more.`,
-          card: 'wallet-load',
-          cardData: { preselectedGame },
-          quickReplies: [{ label: 'Deposit more', action: 'deposit' }],
-        });
-      }
     } else if (action === 'freeplay') {
       pushAgentReply(targetThread, {
         text: 'Freeplay is once per account. Do not mark the GameStrike email as spam. If it is in Spam, move it to Primary. Do not open the email. Screenshot the Primary inbox where the GameStrike email is sitting in the list, then upload that screenshot here.',
@@ -547,36 +557,23 @@ export const App: React.FC = () => {
     text: string,
     attachment?: { url: string; name: string }
   ) => {
-    if (token) {
-      apiFetch(
-        '/api/chat/message',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            threadId: activeThread,
-            text,
-            attachmentUrl: attachment?.url,
-            attachmentName: attachment?.name,
-          }),
-        },
-        token
-      ).catch((err) => {
-        if (isUnauthorized(err)) expireSession();
-      });
-    } else {
-      const userMsg: ChatMessage = {
-        id: uid(),
-        threadId: activeThread,
-        sender: 'user',
-        text,
-        timestamp: nowTime(),
-        read: true,
-        attachmentUrl: attachment?.url,
-        attachmentName: attachment?.name,
-      };
-      setMessages((prev) => [...prev, userMsg]);
-    }
-
+    if (!token) return;
+    apiFetch(
+      '/api/chat/message',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          threadId: activeThread,
+          text,
+          attachmentUrl: attachment?.url,
+          attachmentName: attachment?.name,
+          clientMeta: getClientDevicePayload(),
+        }),
+      },
+      token
+    ).catch((err) => {
+      if (isUnauthorized(err)) expireSession();
+    });
   };
 
   const handleSubmitDeposit = async (data: {
@@ -617,26 +614,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLoadWallet = async (data: { game: string; amount: number; gameUser: string }) => {
-    if (!token) return 'Sign in first.';
-    try {
-      const res = await apiFetch<{ walletBalance: number }>(
-        '/api/wallet/load',
-        { method: 'POST', body: JSON.stringify(data) },
-        token
-      );
-      setUser((prev) => (prev ? { ...prev, walletBalance: res.walletBalance } : prev));
-      return '';
-    } catch (err) {
-      return (err as Error).message;
-    }
-  };
-
-  const handleSubmitFreeplay = async (screenshot: string) => {
+  const handleSubmitFreeplay = async (data: { screenshot: string; game: string }) => {
     if (!token) return;
     await apiFetch(
       '/api/tickets/freeplay',
-      { method: 'POST', body: JSON.stringify({ receiptScreenshotUrl: screenshot }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({ receiptScreenshotUrl: data.screenshot, game: data.game }),
+      },
       token
     );
   };
@@ -855,7 +840,7 @@ export const App: React.FC = () => {
     if (code === 'REFERRAL') {
       const pct = Number(settings.referralBonus ?? 10);
       pushAgentReply(activeThread, {
-        text: `Referral is ${pct}% and it pays once. When someone joins with your link and their deposit succeeds, ${pct}% of that deposit goes into your wallet automatically.`,
+        text: `Referral is ${pct}% and it pays once. When someone joins with your link and their deposit succeeds, you get ${pct}% of that deposit (referral ledger).`,
         quickReplies: [{ label: 'Deposit now', action: 'deposit' }],
       });
       return;
@@ -866,10 +851,9 @@ export const App: React.FC = () => {
       .map((gw) => `${paymentMethodName(gw)}${gw.handle ? `: ${gw.handle}` : ''}`)
       .join('\n');
     pushAgentReply(activeThread, {
-      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after the Primary inbox screenshot is approved\n• Referral ${Number(settings.referralBonus ?? 10)}% once, paid to the inviter when that player's deposit succeeds\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nManual methods such as Chime show the QR in the deposit card. Download it there, pay, then upload the receipt. Successful payments, including the bonus, go into your wallet. Game loads are taken from that wallet and cannot be more than the balance.`,
+      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after Primary inbox screenshot\n• Referral ${Number(settings.referralBonus ?? 10)}% once, paid to the inviter when that player's deposit succeeds\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nGet your Game ID first. Deposit for a game — payment + bonus load on that game.`,
       quickReplies: [
         { label: 'Deposit now', action: 'deposit' },
-        { label: 'Load a game', action: 'load-game' },
         ...(code === 'FREEPLAY' ? [{ label: 'Send inbox screenshot', action: 'freeplay' }] : []),
       ],
     });
@@ -930,8 +914,6 @@ export const App: React.FC = () => {
           handleClaimPromo(title, code);
         }}
         isLoggedIn={Boolean(user && token)}
-        user={user}
-        onLoadFromWallet={handleLoadWallet}
         onAuthenticate={handleAuthenticate}
       />
     );
@@ -973,7 +955,6 @@ export const App: React.FC = () => {
       onSubmitGameId={handleSubmitGameId}
       onSubmitIssue={handleSubmitIssue}
       onClaimPromo={handleClaimPromo}
-      onLoadWallet={handleLoadWallet}
       onSubmitFreeplay={handleSubmitFreeplay}
       onSyncCashTap={handleSyncCashTap}
       onOpenGamesPage={() => navigate('games')}

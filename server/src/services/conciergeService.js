@@ -6,7 +6,6 @@ const ACTIONS = new Set([
   'bonuses',
   'freeplay',
   'issue',
-  'wallet-load',
   'password',
 ]);
 
@@ -70,7 +69,12 @@ function siteFacts({ user, settings, games, gateways, tickets }) {
   return {
     playerName: user?.name || 'Player',
     walletBalance: Number(user?.walletBalance || 0),
-    freeplayAlreadyClaimed: Boolean(user?.freeplayClaimed),
+    freeplayClaimCount: Number(user?.freeplayClaimCount || 0),
+    depositsSinceLastFreeplay: Number(user?.depositsSinceLastFreeplay || 0),
+    freeplayDepositsRequired: Number(s?.freeplayDepositsBetweenClaims ?? 15),
+    freeplayEligible:
+      Number(user?.freeplayClaimCount || 0) === 0 ||
+      Number(user?.depositsSinceLastFreeplay || 0) >= Number(s?.freeplayDepositsBetweenClaims ?? 15),
     completedDeposits: Number(user?.completedDepositsCount || 0),
     referralsJoined: Number(user?.referralsJoined || 0),
     referralsRewarded: Number(user?.referralCount || 0),
@@ -140,7 +144,7 @@ function keywordAction(text) {
   if (/payment|cash ?app|chime|tag|qr|zelle|venmo|crypto|usdt|usdc/.test(q)) return 'payments';
   if (/freeplay|free play/.test(q)) return 'freeplay';
   if (/bonus|promo|offer|daily/.test(q)) return 'bonuses';
-  if (/wallet|load game|load the game/.test(q)) return 'wallet-load';
+  if (/load game|load the game/.test(q)) return 'deposit';
   if (/issue|problem|not working|not open|stuck|error|delay|pending|help|support/.test(q)) return 'issue';
   return '';
 }
@@ -239,7 +243,7 @@ function siteReply(text, facts, hasAttachment, check) {
     const minimum = Number(check.minDeposit || 0);
     const minimumLine = minimum > 0 ? ` Minimum load on it is $${minimum}.` : '';
     return {
-      text: `Yes, ${check.asked} is available on GameStrike.${minimumLine} Deposit lands in your wallet first, then you load the game from that balance.`,
+      text: `Yes, ${check.asked} is available on GameStrike.${minimumLine} After payment, deposit + bonus load on the game you picked.`,
       action: '',
     };
   }
@@ -266,9 +270,12 @@ function siteReply(text, facts, hasAttachment, check) {
       action: '',
     };
   }
-  if (/^(hi|hello|hey|yo|salam|assalam)\b/.test(q.trim()) || q.trim() === 'hi dear') {
+  const trimmed = q.trim();
+  const isOnlyGreeting =
+  /^(hi|hello|hey|yo|salam|assalam|dear)([!.\s,]*)$/i.test(trimmed) || trimmed === 'hi dear';
+  if (isOnlyGreeting) {
     return {
-      text: `Hey ${first}. Your wallet is $${wallet}. Live games right now: ${games}. Tell me if you want to deposit, load a game, or check a game.`,
+      text: `Hey ${first}. Live games: ${games}. Pick a game, get your Game ID, then deposit — payment + bonus load on that game.`,
       action: '',
     };
   }
@@ -323,19 +330,13 @@ function siteReply(text, facts, hasAttachment, check) {
   const action = keywordAction(q);
   if (action === 'deposit') {
     return {
-      text: `Deposit goes into your wallet, not straight into the game. First deposit gets ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% welcome, and every deposit after that gets ${Number(bonus.regularPercentOnEveryDeposit || 0)}%. I'll open the form.`,
+      text: `Choose the game first and use your Game ID. First deposit gets ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% welcome; after that ${Number(bonus.regularPercentOnEveryDeposit || 0)}% regular. Once payment confirms, deposit + bonus load on that game. I'll open the form.`,
       action,
     };
   }
   if (action === 'withdraw') {
     return {
       text: `${describeCashoutMinimum(facts)} I'll open the cashout form.`,
-      action,
-    };
-  }
-  if (action === 'wallet-load') {
-    return {
-      text: `Your wallet is $${wallet}. Tell me the game and the amount. I can't load more than that balance. Live games: ${games}.`,
       action,
     };
   }
@@ -359,30 +360,44 @@ function siteReply(text, facts, hasAttachment, check) {
   }
   if (action === 'bonuses') {
     return {
-      text: `${bonus.dailyLabel || "Today's bonus"} is ${Number(bonus.dailyPercent || 0)}%. ${bonus.dailyOffer || ''} Welcome is ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% on the first deposit, then ${Number(bonus.regularPercentOnEveryDeposit || 0)}% on every deposit. Referral is ${Number(bonus.referralPercentOnce || 0)}% once, paid to the person who invited you when your deposit succeeds. Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)} once${facts.freeplayAlreadyClaimed ? ', and this account already used it' : ''}.`,
+      text: `${bonus.dailyLabel || "Today's bonus"} is ${Number(bonus.dailyPercent || 0)}%. ${bonus.dailyOffer || ''} Welcome is ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% on the first deposit, then ${Number(bonus.regularPercentOnEveryDeposit || 0)}% on every deposit. Referral is ${Number(bonus.referralPercentOnce || 0)}% once, paid to the person who invited you when your deposit succeeds. Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)}; first one is open, then every ${Number(facts.freeplayDepositsRequired || 15)} completed deposits${facts.freeplayEligible ? '' : ` (you are at ${facts.depositsSinceLastFreeplay}/${facts.freeplayDepositsRequired})`}.`,
       action,
     };
   }
   if (action === 'freeplay') {
+    const req = Number(bonus.freeplayDepositsRequired || facts.freeplayDepositsRequired || 15);
+    const since = Number(facts.depositsSinceLastFreeplay || 0);
+    const claims = Number(facts.freeplayClaimCount || 0);
+    if (!facts.freeplayEligible) {
+      const need = Math.max(0, req - since);
+      return {
+        text: `Next freeplay needs ${need} more completed deposit${need === 1 ? '' : 's'} (${since}/${req} since your last one).`,
+        action: '',
+      };
+    }
     return {
-      text: facts.freeplayAlreadyClaimed
-        ? `Freeplay was already used on this account. Your wallet is $${wallet}.`
-        : `Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)}, one time. Don't mark the GameStrike email as spam. If it is in Spam, move it to Primary, don't open it, and send a screenshot of that Primary inbox list.`,
+      text:
+        claims === 0
+          ? `Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)} once to start. Pick your game, get a Game ID, then send the Primary inbox screenshot — do not open the email.`
+          : `You unlocked freeplay again (${since}/${req} deposits). It is $${Number(bonus.freeplayAmount || 0).toFixed(2)} on the game you choose. Send the Primary inbox screenshot.`,
       action,
     };
   }
   if (action === 'issue') {
     return {
-      text: 'Tell me the game, the amount, and what went wrong. I will put that report on the admin desk.',
+      text: 'Tell me the game, the amount, and what went wrong. I will flag it for our support team right here in chat.',
       action,
     };
   }
   if (/wallet|balance/.test(q)) {
-    return { text: `Your GameStrike wallet is $${wallet}. Deposits and bonuses sit there until you load a game.`, action: '' };
+    return {
+      text: `There is no separate site wallet. Deposits load on the game you select (${games}). Cashout rules use that game's loaded deposit + bonus.`,
+      action: '',
+    };
   }
   if (/how (does|do) (this|it|the site)|how it works|kya scene/.test(q)) {
     return {
-      text: `You deposit into the wallet, the bonus is added there, then you load ${games} from that balance. You can't load more than the wallet.`,
+      text: `Get a Game ID, deposit for that game, and deposit + bonus load through the API. Cashouts need your game balance screenshot and payout tag.`,
       action: '',
     };
   }
@@ -404,7 +419,6 @@ function cardFor(action) {
     bonuses: { card: 'bonuses', quickReplies: [{ label: 'Deposit now', action: 'deposit' }] },
     freeplay: { card: 'freeplay-task', quickReplies: [] },
     issue: { card: 'issue-form', quickReplies: [] },
-    'wallet-load': { card: 'wallet-load', quickReplies: [] },
     password: { card: '', quickReplies: [{ label: 'Game ID', action: 'game-id' }] },
   };
   return cards[action] || { card: '', quickReplies: [] };
@@ -452,7 +466,7 @@ function parseModelJson(raw) {
 async function askGemini({ facts, history, latestText, check }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) return null;
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
   const system = [
     'You are a real person on the GameStrike.io desk, texting a player in live chat.',
     'Sound human. Short messages, contractions, a natural tone. No scripts, no bullet points, no "I am here, ask me about a deposit".',
@@ -461,7 +475,8 @@ async function askGemini({ facts, history, latestText, check }) {
     'That includes deposit count, deposit amounts, ticket status, wallet, bonuses, referral joins, games, and payment tags.',
     'completedDeposits and recentRequests are the account record. Do not guess a number that is not in those facts.',
     'If they are asking a question, action must be an empty string. Do not open a form just because they mentioned a deposit, cashout, or bonus.',
-    'Set action only when they want that thing done now. Actions: deposit, withdraw, game-id, payments, bonuses, freeplay, wallet-load, issue, password.',
+    'Deposits load deposit+bonus on the game chosen on the ticket, not a site wallet. For cashouts, never mention admin, manual approval, or internal verification — tell the player our cashier verifies their screenshots and updates them in chat (typical payout 5–15 minutes).',
+    'Set action only when they want that thing done now. Actions: deposit, withdraw, game-id, payments, bonuses, freeplay, issue, password.',
     'If gameCheck is present, that lookup is final. If onTheFloor is true, that game is available. If it is false, it is not available and hittingNow is the game that is hitting right now.',
     'Reply with JSON only: {"text":"...","action":""}.',
     `Site facts: ${JSON.stringify(facts)}`,
@@ -515,7 +530,7 @@ export async function buildSupportReply({ user, message, settings, games, gatewa
   const generated = await askGemini({ facts, history, latestText, check });
   const known = generated ? null : siteReply(latestText, facts, hasAttachment, check);
   const chosen = generated || known || {
-    text: `Your wallet is $${Number(facts.walletBalance || 0).toFixed(2)}. You've completed ${Number(facts.completedDeposits || 0)} deposits. Live games are ${listGames(facts)}.`,
+    text: `You've completed ${Number(facts.completedDeposits || 0)} deposits. Live games: ${listGames(facts)}. Deposits load on the game you pick.`,
     action: '',
   };
   const asking = check || isInfoQuestion(latestText);

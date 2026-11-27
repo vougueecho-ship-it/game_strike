@@ -19,6 +19,7 @@ import {
   Send,
   ShieldCheck,
   Sliders,
+  Users,
   Sun,
   Ticket,
   Trash2,
@@ -33,7 +34,7 @@ interface AdminSuiteProps {
   onBackToPlayerApp: () => void;
 }
 
-type AdminTab = 'analytics' | 'inbox' | 'tickets' | 'games' | 'gateways' | 'rules' | 'push';
+type AdminTab = 'analytics' | 'accounts' | 'inbox' | 'tickets' | 'games' | 'gateways' | 'rules' | 'push';
 
 const ADMIN_TOKEN_KEY = 'gamestrike_admin_token_v1';
 
@@ -115,6 +116,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     dailyBonusLabel: "Today's Bonus",
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
+    freeplayDepositsBetweenClaims: 15,
     freeplayMinGameBalance: 120,
     freeplayCashoutPercent: 10,
     freeplayFromEmails: '',
@@ -218,6 +220,13 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     socket.on('chat:cleared', (payload: { userId?: string }) => {
       if (String(payload?.userId) !== String(selectedPlayerId)) return;
       setPlayerMessages([]);
+    });
+    socket.on('player:updated', (patch: any) => {
+      const id = String(patch?._id || patch?.id || '');
+      if (!id) return;
+      setPlayers((prev) =>
+        prev.map((p) => (String(p._id) === id ? { ...p, ...patch } : p))
+      );
     });
 
     return () => {
@@ -568,8 +577,61 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
   const selectedPlayer = players.find((p) => p._id === selectedPlayerId);
   const pendingCount = tickets.filter((t) => t.status === 'Processing').length;
 
+  const togglePlayerSuspend = async (player: any) => {
+    if (!token || !player?._id) return;
+    const isSuspended = player.status === 'suspended';
+    const confirmMsg = isSuspended
+      ? `Reactivate account for ${player.name}?`
+      : `Suspend ${player.name} and block this device? They cannot sign in or chat again from that device.`;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      const res = await apiFetch<{ ok: boolean; player: any }>(
+        `/api/admin/players/${player._id}/toggle-suspend`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            status: isSuspended ? 'active' : 'suspended',
+            reason: isSuspended ? '' : 'Violated terms / multi-account abuse',
+          }),
+        },
+        token
+      );
+      if (res.player) {
+        setPlayers((prev) =>
+          prev.map((p) => (String(p._id) === String(res.player._id) ? { ...p, ...res.player } : p))
+        );
+      }
+    } catch (err: any) {
+      alert(err.message || 'Could not update suspension.');
+    }
+  };
+
+  const playerTicketStats = (p: any) => ({
+    depositsCompleted: Number(p?.stats?.depositsCompleted ?? 0),
+    depositsPending: Number(p?.stats?.depositsPending ?? 0),
+    withdrawsCompleted: Number(p?.stats?.withdrawsCompleted ?? 0),
+    withdrawsPending: Number(p?.stats?.withdrawsPending ?? 0),
+    freeplayTickets: Number(p?.stats?.freeplayTickets ?? 0),
+    gameIds: Number(p?.stats?.gameIds ?? 0),
+  });
+
+  const refreshPlayerProfile = async (playerId: string) => {
+    if (!token) return;
+    try {
+      const res = await apiFetch<{ player: any }>(`/api/admin/players/${playerId}/profile`, {}, token);
+      if (res.player) {
+        setPlayers((prev) =>
+          prev.map((p) => (String(p._id) === String(res.player._id) ? res.player : p))
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const navItems = [
     { id: 'analytics' as const, label: 'Analytics & Profit', icon: BarChart3 },
+    { id: 'accounts' as const, label: 'Player Accounts', count: players.length, icon: Users },
     { id: 'inbox' as const, label: 'Player Inbox', count: players.length, icon: MessageSquare },
     { id: 'tickets' as const, label: 'Cashier & Issues', count: pendingCount, icon: Ticket },
     { id: 'games' as const, label: 'Games & APIs', icon: Gamepad2 },
@@ -796,6 +858,194 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
           </div>
         )}
 
+        {tab === 'accounts' && (
+          <div className="admin-inbox-grid">
+            <div className="admin-players-col">
+              <div className="sidebar-section-label" style={{ paddingLeft: 8 }}>
+                All accounts ({players.length})
+              </div>
+              {players.length === 0 ? (
+                <p style={{ padding: 12, fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                  No registered players yet.
+                </p>
+              ) : (
+                players.map((p) => (
+                  <button
+                    key={p._id}
+                    type="button"
+                    className={`thread-item ${selectedPlayerId === p._id ? 'active' : ''}`}
+                    onClick={() => setSelectedPlayerId(p._id)}
+                  >
+                    <div className="user-avatar-circle">{p.name?.slice(0, 2).toUpperCase()}</div>
+                    <div className="thread-meta">
+                      <div className="thread-meta-top">
+                        <span className="thread-name">
+                          {p.name}
+                          {p.status === 'suspended' && (
+                            <span style={{ marginLeft: 6, fontSize: '0.65rem', padding: '1px 5px', borderRadius: 4, background: '#ef4444', color: '#fff' }}>
+                              SUSPENDED
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="thread-preview mono">
+                        {p.id} • dep {p.stats?.depositsCompleted ?? 0} / wd {p.stats?.withdrawsCompleted ?? 0}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="admin-scroll-body" style={{ flex: 1, minWidth: 0 }}>
+              {selectedPlayer ? (
+                <div className="games-container" style={{ maxWidth: 1100, paddingTop: 16, paddingBottom: 24 }}>
+                  <div className="section-head" style={{ marginBottom: 16 }}>
+                    <div>
+                      <h2>{selectedPlayer.name}</h2>
+                      <p className="mono" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        {selectedPlayer.id} • {selectedPlayer.contact} • joined {selectedPlayer.joinedAt}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '7px 12px', fontSize: '0.78rem' }}
+                        onClick={() => refreshPlayerProfile(String(selectedPlayer._id))}
+                      >
+                        <RefreshCw size={14} />
+                        <span>Refresh</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '7px 12px', fontSize: '0.78rem' }}
+                        onClick={() => setTab('inbox')}
+                      >
+                        <MessageSquare size={14} />
+                        <span>Open chat</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{
+                          padding: '7px 12px',
+                          fontSize: '0.78rem',
+                          color: selectedPlayer.status === 'suspended' ? '#4ade80' : '#f87171',
+                        }}
+                        onClick={() => togglePlayerSuspend(selectedPlayer)}
+                      >
+                        {selectedPlayer.status === 'suspended' ? 'Reactivate' : 'Suspend + block device'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="admin-api-grid" style={{ marginBottom: 18 }}>
+                    {(() => {
+                      const s = playerTicketStats(selectedPlayer);
+                      return [
+                        ['Deposits done', s.depositsCompleted, '#4ade80'],
+                        ['Deposits pending', s.depositsPending, '#ffd166'],
+                        ['Cashouts done', s.withdrawsCompleted, '#60a5fa'],
+                        ['Cashouts pending', s.withdrawsPending, '#f472b6'],
+                        ['Freeplay tickets', s.freeplayTickets, '#a78bfa'],
+                        ['Game IDs', s.gameIds, '#94a3b8'],
+                      ];
+                    })().map(([label, val, color]) => (
+                      <div key={String(label)} className="admin-api-card">
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                          {label}
+                        </div>
+                        <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 700, color: String(color) }}>
+                          {val}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="wallet-panel" style={{ marginBottom: 14 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Device &amp; client</div>
+                    <div style={{ display: 'grid', gap: 6, fontSize: '0.84rem' }}>
+                      <div>
+                        <strong>Platform:</strong>{' '}
+                        <span className="mono">{selectedPlayer.lastClientPlatform || '—'}</span>
+                        {selectedPlayer.lastBrowserLabel ? ` • ${selectedPlayer.lastBrowserLabel}` : ''}
+                      </div>
+                      <div>
+                        <strong>Device ID:</strong>{' '}
+                        <span className="mono" style={{ wordBreak: 'break-all' }}>
+                          {selectedPlayer.deviceId || '—'}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>Fingerprint:</strong>{' '}
+                        <span className="mono" style={{ wordBreak: 'break-all' }}>
+                          {selectedPlayer.deviceFingerprint || '—'}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>Registration IP:</strong>{' '}
+                        <span className="mono">{selectedPlayer.registrationIp || '—'}</span>
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', wordBreak: 'break-word' }}>
+                        {selectedPlayer.lastUserAgent || 'No user-agent captured yet.'}
+                      </div>
+                      {selectedPlayer.isDeviceBlocked && (
+                        <div style={{ color: '#ef4444', fontWeight: 700 }}>
+                          Device blocked: {selectedPlayer.deviceBlockReason || 'Admin suspension'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="wallet-panel" style={{ marginBottom: 14 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Freeplay progress</div>
+                    <div className="mono" style={{ fontSize: '0.86rem' }}>
+                      Claims: {selectedPlayer.freeplayClaimCount ?? 0} • Deposits since last freeplay:{' '}
+                      {selectedPlayer.depositsSinceLastFreeplay ?? 0} (next unlock after{' '}
+                      {rules.freeplayDepositsBetweenClaims ?? 15} completed deposits)
+                    </div>
+                  </div>
+
+                  <div className="wallet-panel">
+                    <div style={{ fontWeight: 700, marginBottom: 10 }}>Recent tickets</div>
+                    {(selectedPlayer.recentTickets || []).length === 0 ? (
+                      <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-muted)' }}>No tickets yet.</p>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 8, maxHeight: 320, overflow: 'auto' }}>
+                        {(selectedPlayer.recentTickets || []).map((t: any) => (
+                          <div
+                            key={t.ticketId}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 10,
+                              fontSize: '0.82rem',
+                              borderBottom: '1px solid var(--border-soft)',
+                              paddingBottom: 6,
+                            }}
+                          >
+                            <span className="mono">{t.ticketId}</span>
+                            <span>{t.type}</span>
+                            <span>{t.status}</span>
+                            <span>{t.amount != null ? `$${Number(t.amount).toFixed(2)}` : '—'}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{t.game || ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>
+                  Select a player to view full account details.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: LIVE PLAYER INBOX (PROPERLY LOCKED HEIGHT & SCROLLABLE) */}
         {tab === 'inbox' && (
           <div className="admin-inbox-grid">
@@ -851,7 +1101,13 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     <div className="mono" style={{ fontSize: '0.76rem', color: typingPlayerId === String(selectedPlayer._id) ? '#4ade80' : 'var(--text-muted)' }}>
                       {typingPlayerId === String(selectedPlayer._id)
                         ? 'Player is typing...'
-                        : `${selectedPlayer.id} • ${selectedPlayer.contact} • Wallet $${Number(selectedPlayer.walletBalance || 0).toFixed(2)}`}
+                        : `${selectedPlayer.id} • ${selectedPlayer.contact} • ${
+                            selectedPlayer.lastClientPlatform || 'web'
+                          }${
+                            selectedPlayer.lastBrowserLabel ? ` / ${selectedPlayer.lastBrowserLabel}` : ''
+                          } • dep ${playerTicketStats(selectedPlayer).depositsCompleted} / wd ${
+                            playerTicketStats(selectedPlayer).withdrawsCompleted
+                          }`}
                     </div>
                   </div>
                   <form
@@ -894,34 +1150,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                           : 'rgba(255, 31, 75, 0.25)',
                         color: selectedPlayer.status === 'suspended' ? '#ef4444' : '#f87171',
                       }}
-                      onClick={async () => {
-                        const isSuspended = selectedPlayer.status === 'suspended';
-                        const confirmMsg = isSuspended
-                          ? `Reactivate account for ${selectedPlayer.name}?`
-                          : `Suspend account and permanently block device for ${selectedPlayer.name}?`;
-                        if (!window.confirm(confirmMsg)) return;
-
-                        try {
-                          const res = await apiFetch<{ ok: boolean; player: any }>(
-                            `/api/admin/players/${selectedPlayer._id}/toggle-suspend`,
-                            {
-                              method: 'POST',
-                              body: JSON.stringify({
-                                status: isSuspended ? 'active' : 'suspended',
-                                reason: isSuspended ? '' : 'Violated terms / multi-account abuse',
-                              }),
-                            },
-                            token
-                          );
-                          if (res.player) {
-                            setPlayers((prev) =>
-                              prev.map((p) => (p._id === res.player._id ? res.player : p))
-                            );
-                          }
-                        } catch (err: any) {
-                          alert(err.message || 'Could not update suspension.');
-                        }
-                      }}
+                      onClick={() => togglePlayerSuspend(selectedPlayer)}
                     >
                       {selectedPlayer.status === 'suspended' ? '🚫 Suspended (Reactivate)' : '⛔ Suspend Player'}
                     </button>
@@ -1903,6 +2132,21 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                       value={rules.freeplayAmount || 0}
                       onChange={(e) =>
                         setRules({ ...rules, freeplayAmount: Number(e.target.value) || 0 })
+                      }
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">Completed deposits needed for each extra freeplay</label>
+                    <input
+                      className="field-input mono"
+                      type="number"
+                      min={1}
+                      value={rules.freeplayDepositsBetweenClaims ?? 15}
+                      onChange={(e) =>
+                        setRules({
+                          ...rules,
+                          freeplayDepositsBetweenClaims: Math.max(1, Number(e.target.value) || 15),
+                        })
                       }
                     />
                   </div>
