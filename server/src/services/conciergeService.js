@@ -1,3 +1,9 @@
+import {
+  effectiveFreeplayClaimCount,
+  freeplayEligibility,
+  hasPendingFreeplayTicket,
+} from '../lib/freeplayEligibility.js';
+
 const ACTIONS = new Set([
   'deposit',
   'withdraw',
@@ -69,12 +75,11 @@ function siteFacts({ user, settings, games, gateways, tickets }) {
   return {
     playerName: user?.name || 'Player',
     walletBalance: Number(user?.walletBalance || 0),
-    freeplayClaimCount: Number(user?.freeplayClaimCount || 0),
+    freeplayClaimCount: effectiveFreeplayClaimCount(user, tickets),
     depositsSinceLastFreeplay: Number(user?.depositsSinceLastFreeplay || 0),
     freeplayDepositsRequired: Number(s?.freeplayDepositsBetweenClaims ?? 15),
-    freeplayEligible:
-      Number(user?.freeplayClaimCount || 0) === 0 ||
-      Number(user?.depositsSinceLastFreeplay || 0) >= Number(s?.freeplayDepositsBetweenClaims ?? 15),
+    freeplayPending: hasPendingFreeplayTicket(tickets),
+    freeplayEligible: freeplayEligibility(user, s, tickets).eligible,
     completedDeposits: Number(user?.completedDepositsCount || 0),
     referralsJoined: Number(user?.referralsJoined || 0),
     referralsRewarded: Number(user?.referralCount || 0),
@@ -365,7 +370,13 @@ function siteReply(text, facts, hasAttachment, check) {
     };
   }
   if (action === 'freeplay') {
-    const req = Number(bonus.freeplayDepositsRequired || facts.freeplayDepositsRequired || 15);
+    if (facts.freeplayPending) {
+      return {
+        text: 'We already have your freeplay screenshot in review. You will get a reply here as soon as it is checked.',
+        action: '',
+      };
+    }
+    const req = Number(facts.freeplayDepositsRequired || 15);
     const since = Number(facts.depositsSinceLastFreeplay || 0);
     const claims = Number(facts.freeplayClaimCount || 0);
     if (!facts.freeplayEligible) {
@@ -477,6 +488,7 @@ async function askGemini({ facts, history, latestText, check }) {
     'If they are asking a question, action must be an empty string. Do not open a form just because they mentioned a deposit, cashout, or bonus.',
     'Deposits load deposit+bonus on the game chosen on the ticket, not a site wallet. For cashouts, never mention admin, manual approval, or internal verification — tell the player our cashier verifies their screenshots and updates them in chat (typical payout 5–15 minutes).',
     'Set action only when they want that thing done now. Actions: deposit, withdraw, game-id, payments, bonuses, freeplay, issue, password.',
+    'If freeplayEligible is false or freeplayPending is true, never set action to freeplay.',
     'If gameCheck is present, that lookup is final. If onTheFloor is true, that game is available. If it is false, it is not available and hittingNow is the game that is hitting right now.',
     'Reply with JSON only: {"text":"...","action":""}.',
     `Site facts: ${JSON.stringify(facts)}`,
@@ -539,9 +551,27 @@ export async function buildSupportReply({ user, message, settings, games, gatewa
     : asking
       ? ''
       : (generated?.action || keywordAction(latestText));
-  const presentation = cardFor(action);
+  let safeAction = action;
+  if (safeAction === 'freeplay' && !facts.freeplayEligible) {
+    safeAction = '';
+  }
+  const presentation = cardFor(safeAction);
+  let text = chosen.text;
+  if (action === 'freeplay' && !facts.freeplayEligible) {
+    const fallback = siteReply(latestText, facts, hasAttachment, check);
+    if (fallback?.text) text = fallback.text;
+    else if (facts.freeplayPending) {
+      text = 'Your freeplay screenshot is already being reviewed — wait for our reply here before sending another.';
+    } else {
+      const need = Math.max(
+        0,
+        Number(facts.freeplayDepositsRequired || 15) - Number(facts.depositsSinceLastFreeplay || 0)
+      );
+      text = `You already used freeplay on this account. The next one unlocks after ${need} more completed deposit${need === 1 ? '' : 's'}.`;
+    }
+  }
   return {
-    text: chosen.text,
+    text,
     agentName: 'GameStrike Support',
     card: presentation.card || undefined,
     quickReplies: presentation.quickReplies,

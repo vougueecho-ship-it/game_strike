@@ -23,6 +23,7 @@ import {
 import { PAYMENT_GATEWAYS as DEFAULT_GATEWAYS } from './data/catalog';
 import { paymentMethodName } from './data/catalog';
 import { getClientDevicePayload } from './utils/clientDevice';
+import { freeplayEligibility, freeplayEligibilityMessage } from './utils/freeplayEligibility';
 
 const STORAGE_USER_KEY = 'gamestrike_user_v1';
 const STORAGE_TOKEN_KEY = 'gamestrike_token_v1';
@@ -310,6 +311,10 @@ export const App: React.FC = () => {
       setTickets((prev) => prev.map((t) => (t.id === mapped.id ? mapped : t)));
     });
 
+    socket.on('profile:updated', (profile: UserProfile) => {
+      setUser((prev) => (prev ? withoutSiteWallet({ ...prev, ...profile }) : withoutSiteWallet(profile)));
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -536,8 +541,18 @@ export const App: React.FC = () => {
         card: 'bonuses',
       });
     } else if (action === 'freeplay') {
+      const elig = freeplayEligibility(user || undefined, settings, tickets);
+      if (!elig.eligible) {
+        pushAgentReply(targetThread, {
+          text: freeplayEligibilityMessage(user || undefined, settings, tickets),
+        });
+        return;
+      }
       pushAgentReply(targetThread, {
-        text: 'Freeplay is once per account. Do not mark the GameStrike email as spam. If it is in Spam, move it to Primary. Do not open the email. Screenshot the Primary inbox where the GameStrike email is sitting in the list, then upload that screenshot here.',
+        text:
+          elig.claimCount === 0
+            ? 'Do not mark the GameStrike email as spam. If it is in Spam, move it to Primary. Do not open the email. Screenshot the Primary inbox where the GameStrike email is sitting in the list, then upload it below.'
+            : 'You unlocked another freeplay. Same rule: Primary inbox screenshot — email visible in the list, do not open it.',
         card: 'freeplay-task',
       });
     } else if (action === 'password') {
@@ -616,7 +631,11 @@ export const App: React.FC = () => {
 
   const handleSubmitFreeplay = async (data: { screenshot: string; game: string }) => {
     if (!token) return;
-    await apiFetch(
+    const elig = freeplayEligibility(user || undefined, settings, tickets);
+    if (!elig.eligible) {
+      throw new Error(freeplayEligibilityMessage(user || undefined, settings, tickets));
+    }
+    const res = await apiFetch<{ ticket: any; user?: UserProfile }>(
       '/api/tickets/freeplay',
       {
         method: 'POST',
@@ -624,6 +643,13 @@ export const App: React.FC = () => {
       },
       token
     );
+    if (res.ticket) {
+      const mapped = mapServerTicket(res.ticket);
+      setTickets((prev) => (prev.some((t) => t.id === mapped.id) ? prev : [mapped, ...prev]));
+    }
+    if (res.user) {
+      setUser((prev) => (prev ? withoutSiteWallet({ ...prev, ...res.user! }) : withoutSiteWallet(res.user!)));
+    }
   };
 
   const handleSyncCashTap = async (ticketId: string) => {
@@ -850,11 +876,16 @@ export const App: React.FC = () => {
     const tags = gateways
       .map((gw) => `${paymentMethodName(gw)}${gw.handle ? `: ${gw.handle}` : ''}`)
       .join('\n');
+    const fpEligible = freeplayEligibility(user || undefined, settings, tickets).eligible;
     pushAgentReply(activeThread, {
-      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)} once, after Primary inbox screenshot\n• Referral ${Number(settings.referralBonus ?? 10)}% once, paid to the inviter when that player's deposit succeeds\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nGet your Game ID first. Deposit for a game — payment + bonus load on that game.`,
+      text: `**${title}** is selected.\n\nLive bonuses right now:\n• Welcome ${settings.welcomeBonusPercent}% on your first deposit\n• Regular ${settings.regularBonusPercent}% on every deposit\n• ${settings.dailyBonusLabel || "Today's Bonus"} ${settings.dailyBonusPercent || 0}% if you picked today's bonus\n• Freeplay $${Number(settings.freeplayAmount || 0).toFixed(2)}${
+        fpEligible ? ', when you are eligible — Primary inbox screenshot' : ` — ${freeplayEligibilityMessage(user || undefined, settings, tickets)}`
+      }\n• Referral ${Number(settings.referralBonus ?? 10)}% once, paid to the inviter when that player's deposit succeeds\n\nPayment tags:\n${tags || 'Open Payment Methods in chat.'}\n\nGet your Game ID first. Deposit for a game — payment + bonus load on that game.`,
       quickReplies: [
         { label: 'Deposit now', action: 'deposit' },
-        ...(code === 'FREEPLAY' ? [{ label: 'Send inbox screenshot', action: 'freeplay' }] : []),
+        ...(code === 'FREEPLAY' && fpEligible
+          ? [{ label: 'Send inbox screenshot', action: 'freeplay' }]
+          : []),
       ],
     });
   };

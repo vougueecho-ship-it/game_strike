@@ -22,6 +22,7 @@ import {
   UserProfile,
 } from '../types';
 import { paymentMethodName } from '../data/catalog';
+import { freeplayEligibility, freeplayEligibilityMessage } from '../utils/freeplayEligibility';
 
 interface InlineChatCardProps {
   message: ChatMessage;
@@ -117,6 +118,18 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
     gateways.find((g) => g.id === methodId) || gateways[0];
 
   if (message.card === 'freeplay-task') {
+    const fp = freeplayEligibility(user, settings, tickets);
+    if (!fp.eligible) {
+      return (
+        <div className="inline-card">
+          <div className="inline-card-title">
+            <Gift size={16} color="#ff1f4b" />
+            <span>Freeplay</span>
+          </div>
+          <p className="inbox-note">{freeplayEligibilityMessage(user, settings, tickets)}</p>
+        </div>
+      );
+    }
     return (
       <form
         className="inline-card"
@@ -1124,7 +1137,10 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
             {
               title: `$${Number(settings.freeplayAmount || 0).toFixed(0)} Freeplay`,
               code: 'FREEPLAY',
-              desc: 'Once after signup. Screenshot the Primary inbox list, not the opened email.',
+              desc: freeplayEligibility(user, settings, tickets).eligible
+                ? 'Screenshot the Primary inbox list, not the opened email.'
+                : freeplayEligibilityMessage(user, settings, tickets),
+              disabled: !freeplayEligibility(user, settings, tickets).eligible,
             },
             {
               title: `${settings.welcomeBonusPercent}% Welcome`,
@@ -1167,9 +1183,10 @@ export const InlineChatCard: React.FC<InlineChatCardProps> = ({
                 type="button"
                 className="btn-secondary"
                 style={{ width: '100%', padding: '6px 10px', fontSize: '0.78rem' }}
+                disabled={(offer as { disabled?: boolean }).disabled}
                 onClick={() => onClaimPromo(offer.title, offer.code)}
               >
-                Claim in Chat
+                {(offer as { disabled?: boolean }).disabled ? 'Not available yet' : 'Claim in Chat'}
               </button>
             </div>
           ))}

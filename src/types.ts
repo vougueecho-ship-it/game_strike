@@ -105,7 +105,7 @@ export interface PaymentGateway {
 
 export interface TicketItem {
   id: string;
-  type: 'deposit' | 'withdraw' | 'game-id' | 'bonus' | 'issue';
+  type: 'deposit' | 'withdraw' | 'game-id' | 'bonus' | 'issue' | 'freeplay';
   title: string;
   subtitle: string;
   amount?: number;

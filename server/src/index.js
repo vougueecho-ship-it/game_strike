@@ -1570,9 +1570,10 @@ app.post('/api/tickets/freeplay', requireAuth, async (req, res) => {
   try {
     const user = await db.findUserById(req.auth.id);
     const settings = await db.getSettings();
-    const elig = freeplayEligibility(user, settings);
+    const userTickets = await db.listTickets(req.auth.id);
+    const elig = freeplayEligibility(user, settings, userTickets);
     if (!elig.eligible) {
-      return res.status(400).json({ error: freeplayEligibilityError(user, settings) });
+      return res.status(400).json({ error: freeplayEligibilityError(user, settings, userTickets) });
     }
     const screenshot = String(req.body.receiptScreenshotUrl || '');
     const game = String(req.body.game || '').trim();
@@ -1641,7 +1642,7 @@ app.post('/api/tickets/freeplay', requireAuth, async (req, res) => {
         sender: 'agent',
         agentName: 'GameStrike Support',
         text: `Freeplay screenshot (${ticket.ticketId}) was not accepted.\n\n${note}`,
-        card: 'freeplay-task',
+        card: elig.eligible ? 'freeplay-task' : undefined,
       });
       io.to('admins').emit('ticket:updated', await db.findTicketById(ticket.ticketId));
     } else {
@@ -1661,10 +1662,15 @@ app.post('/api/tickets/freeplay', requireAuth, async (req, res) => {
       });
     }
 
+    const freshUser = await db.findUserById(user._id);
+    if (freshUser) {
+      io.to(`user:${user._id}`).emit('profile:updated', sanitizeUser(freshUser));
+    }
     io.to(`user:${user._id}`).emit('chat:message', playerMsg);
     res.status(201).json({
       ticket: (await db.findTicketById(ticket.ticketId)) || ticket,
       review: review.decision,
+      user: freshUser ? sanitizeUser(freshUser) : undefined,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
