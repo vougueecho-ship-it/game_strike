@@ -117,6 +117,7 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
     freeplayDepositsBetweenClaims: 15,
+    freeplayDepositAmountRequired: 15,
     freeplayMinGameBalance: 120,
     freeplayCashoutPercent: 10,
     freeplayFromEmails: '',
@@ -1002,9 +1003,10 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                   <div className="wallet-panel" style={{ marginBottom: 14 }}>
                     <div style={{ fontWeight: 700, marginBottom: 8 }}>Freeplay progress</div>
                     <div className="mono" style={{ fontSize: '0.86rem' }}>
-                      Claims: {selectedPlayer.freeplayClaimCount ?? 0} • Deposits since last freeplay:{' '}
-                      {selectedPlayer.depositsSinceLastFreeplay ?? 0} (next unlock after{' '}
-                      {rules.freeplayDepositsBetweenClaims ?? 15} completed deposits)
+                      Claims: {selectedPlayer.freeplayClaimCount ?? 0} • Deposit total since last freeplay: $
+                      {Number(selectedPlayer.depositAmountSinceLastFreeplay ?? 0).toFixed(2)} / $
+                      {Number(rules.freeplayDepositAmountRequired ?? rules.freeplayDepositsBetweenClaims ?? 15).toFixed(2)}{' '}
+                      required
                     </div>
                   </div>
 
@@ -2136,18 +2138,21 @@ export const AdminSuite: React.FC<AdminSuiteProps> = ({
                     />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Completed deposits needed for each extra freeplay</label>
+                    <label className="field-label">Total deposit $ required for each extra freeplay (after the first)</label>
                     <input
                       className="field-input mono"
                       type="number"
                       min={1}
-                      value={rules.freeplayDepositsBetweenClaims ?? 15}
-                      onChange={(e) =>
+                      step="0.01"
+                      value={rules.freeplayDepositAmountRequired ?? rules.freeplayDepositsBetweenClaims ?? 15}
+                      onChange={(e) => {
+                        const v = Math.max(1, Number(e.target.value) || 15);
                         setRules({
                           ...rules,
-                          freeplayDepositsBetweenClaims: Math.max(1, Number(e.target.value) || 15),
-                        })
-                      }
+                          freeplayDepositAmountRequired: v,
+                          freeplayDepositsBetweenClaims: v,
+                        });
+                      }}
                     />
                   </div>
                   <div className="field-group admin-rules-span">

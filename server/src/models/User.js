@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema(
     lastBrowserLabel: { type: String, default: '' },
     completedDepositsCount: { type: Number, default: 0 },
     depositsSinceLastFreeplay: { type: Number, default: 0 },
+    depositAmountSinceLastFreeplay: { type: Number, default: 0 },
     freeplayClaimCount: { type: Number, default: 0 },
     lastDepositAmount: { type: Number, default: 0 },
     lastBonusAmount: { type: Number, default: 0 },

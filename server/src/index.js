@@ -181,7 +181,8 @@ async function recordDepositCompleted(playerRec, { amount = 0, bonus = 0, total 
   if (!playerRec?._id) return;
   await db.updateUser(playerRec._id, {
     completedDepositsCount: Number(playerRec.completedDepositsCount || 0) + 1,
-    depositsSinceLastFreeplay: Number(playerRec.depositsSinceLastFreeplay || 0) + 1,
+    depositAmountSinceLastFreeplay:
+      Number(playerRec.depositAmountSinceLastFreeplay || 0) + Number(amount || 0),
     lastDepositAmount: Number(amount || 0),
     lastBonusAmount: Number(bonus || 0),
     lastTotalLoad: Number(total || 0),
@@ -217,6 +218,7 @@ async function fulfillFreeplayToGame(ticket, playerRec, settings) {
     freeplayClaimed: true,
     freeplayClaimCount: Number(playerRec.freeplayClaimCount || 0) + 1,
     depositsSinceLastFreeplay: 0,
+    depositAmountSinceLastFreeplay: 0,
   });
   await db.updateTicketStatus(ticket.ticketId, 'Completed', ticket.adminNote || 'Freeplay loaded to game', {
     walletCredited: true,
@@ -442,6 +444,7 @@ function sanitizeUser(u) {
     freeplayClaimed: Boolean(u.freeplayClaimed),
     freeplayClaimCount: Number(u.freeplayClaimCount || 0),
     depositsSinceLastFreeplay: Number(u.depositsSinceLastFreeplay || 0),
+    depositAmountSinceLastFreeplay: Number(u.depositAmountSinceLastFreeplay || 0),
     joinedAt: u.createdAt
       ? new Date(u.createdAt).toLocaleDateString()
       : new Date().toLocaleDateString(),
@@ -584,6 +587,7 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       freeplayMinGameBalance,
       freeplayCashoutPercent,
       freeplayDepositsBetweenClaims,
+      freeplayDepositAmountRequired,
       freeplayFromEmails,
       freeplayMailboxes,
     } = req.body;
@@ -618,7 +622,24 @@ app.put('/api/admin/settings', requireAdmin, async (req, res) => {
       freeplayAmount: Math.max(0, Number(freeplayAmount ?? 0)),
       freeplayMinGameBalance: Math.max(0, Number(freeplayMinGameBalance ?? 120)),
       freeplayCashoutPercent: Math.min(100, Math.max(0, Number(freeplayCashoutPercent ?? 10))),
-      freeplayDepositsBetweenClaims: Math.max(1, Number(freeplayDepositsBetweenClaims ?? 15)),
+      freeplayDepositAmountRequired: Math.max(
+        1,
+        Number(
+          freeplayDepositAmountRequired ??
+            freeplayDepositsBetweenClaims ??
+            current.freeplayDepositAmountRequired ??
+            15
+        )
+      ),
+      freeplayDepositsBetweenClaims: Math.max(
+        1,
+        Number(
+          freeplayDepositAmountRequired ??
+            freeplayDepositsBetweenClaims ??
+            current.freeplayDepositAmountRequired ??
+            15
+        )
+      ),
       freeplayFromEmails: cleanedMailboxes.map((row) => row.email).join('\n').slice(0, 1000),
       freeplayMailboxes: cleanedMailboxes,
     });

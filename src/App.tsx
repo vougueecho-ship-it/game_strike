@@ -151,6 +151,7 @@ export const App: React.FC = () => {
     dailyBonusLabel: "Today's Bonus",
     dailyOfferText: "Today's offer is live — extra bonus on your next deposit",
     freeplayAmount: 5,
+    freeplayDepositAmountRequired: 15,
     freeplayMinGameBalance: 120,
     freeplayCashoutPercent: 10,
     referralBonus: 10,

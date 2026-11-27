@@ -186,6 +186,7 @@ const DEFAULT_SETTINGS = {
   freeplayMinGameBalance: 120,
   freeplayCashoutPercent: 10,
   freeplayDepositsBetweenClaims: 15,
+  freeplayDepositAmountRequired: 15,
   freeplayFromEmails: '',
   freeplayMailboxes: [],
 };

@@ -15,8 +15,22 @@ export function hasPendingFreeplayTicket(tickets: TicketItem[] = []) {
   return tickets.some((t) => t.type === 'freeplay' && t.status === 'Processing');
 }
 
-export function freeplayDepositsRequired(settings?: PlatformSettings) {
-  return Math.max(1, Number(settings?.freeplayDepositsBetweenClaims ?? 15));
+export function freeplayDepositAmountRequired(settings?: PlatformSettings) {
+  return Math.max(
+    1,
+    Number(
+      settings?.freeplayDepositAmountRequired ??
+        settings?.freeplayDepositsBetweenClaims ??
+        15
+    )
+  );
+}
+
+export function depositAmountTowardFreeplay(user?: UserProfile) {
+  if (user?.depositAmountSinceLastFreeplay != null) {
+    return Number(user.depositAmountSinceLastFreeplay || 0);
+  }
+  return 0;
 }
 
 export function freeplayEligibility(
@@ -24,30 +38,30 @@ export function freeplayEligibility(
   settings?: PlatformSettings,
   tickets: TicketItem[] = []
 ) {
-  const required = freeplayDepositsRequired(settings);
+  const required = freeplayDepositAmountRequired(settings);
   const claimCount = effectiveFreeplayClaimCount(user, tickets);
-  const since = Number(user?.depositsSinceLastFreeplay || 0);
+  const since = depositAmountTowardFreeplay(user);
 
   if (hasPendingFreeplayTicket(tickets)) {
     return {
       eligible: false as const,
       reason: 'pending' as const,
-      depositsNeeded: 0,
+      amountNeeded: 0,
       required,
       claimCount,
       since,
     };
   }
   if (claimCount === 0) {
-    return { eligible: true as const, reason: '' as const, depositsNeeded: 0, required, claimCount, since };
+    return { eligible: true as const, reason: '' as const, amountNeeded: 0, required, claimCount, since };
   }
   if (since >= required) {
-    return { eligible: true as const, reason: '' as const, depositsNeeded: 0, required, claimCount, since };
+    return { eligible: true as const, reason: '' as const, amountNeeded: 0, required, claimCount, since };
   }
   return {
     eligible: false as const,
     reason: 'deposits' as const,
-    depositsNeeded: required - since,
+    amountNeeded: required - since,
     required,
     claimCount,
     since,
@@ -64,5 +78,5 @@ export function freeplayEligibilityMessage(
   if (e.reason === 'pending') {
     return 'Your freeplay is already in review — hang tight for our reply in chat.';
   }
-  return `Next freeplay unlocks after ${e.depositsNeeded} more completed deposit${e.depositsNeeded === 1 ? '' : 's'} (${e.since}/${e.required} since your last one).`;
+  return `Next freeplay after $${e.amountNeeded.toFixed(2)} more in deposits ($${e.since.toFixed(2)} / $${e.required.toFixed(2)} since your last freeplay).`;
 }

@@ -18,6 +18,7 @@ export interface PlatformSettings {
   freeplayMinGameBalance?: number;
   freeplayCashoutPercent?: number;
   freeplayDepositsBetweenClaims?: number;
+  freeplayDepositAmountRequired?: number;
   freeplayFromEmails?: string;
 }
 
@@ -43,6 +44,7 @@ export interface UserProfile {
   freeplayClaimed?: boolean;
   freeplayClaimCount?: number;
   depositsSinceLastFreeplay?: number;
+  depositAmountSinceLastFreeplay?: number;
   lastClientPlatform?: string;
   lastBrowserLabel?: string;
   lastUserAgent?: string;

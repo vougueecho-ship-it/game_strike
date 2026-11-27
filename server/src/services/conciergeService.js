@@ -1,5 +1,7 @@
 import {
+  depositAmountTowardFreeplay,
   effectiveFreeplayClaimCount,
+  freeplayDepositAmountRequired,
   freeplayEligibility,
   hasPendingFreeplayTicket,
 } from '../lib/freeplayEligibility.js';
@@ -76,8 +78,8 @@ function siteFacts({ user, settings, games, gateways, tickets }) {
     playerName: user?.name || 'Player',
     walletBalance: Number(user?.walletBalance || 0),
     freeplayClaimCount: effectiveFreeplayClaimCount(user, tickets),
-    depositsSinceLastFreeplay: Number(user?.depositsSinceLastFreeplay || 0),
-    freeplayDepositsRequired: Number(s?.freeplayDepositsBetweenClaims ?? 15),
+    depositAmountSinceLastFreeplay: depositAmountTowardFreeplay(user),
+    freeplayDepositAmountRequired: freeplayDepositAmountRequired(s),
     freeplayPending: hasPendingFreeplayTicket(tickets),
     freeplayEligible: freeplayEligibility(user, s, tickets).eligible,
     completedDeposits: Number(user?.completedDepositsCount || 0),
@@ -365,7 +367,7 @@ function siteReply(text, facts, hasAttachment, check) {
   }
   if (action === 'bonuses') {
     return {
-      text: `${bonus.dailyLabel || "Today's bonus"} is ${Number(bonus.dailyPercent || 0)}%. ${bonus.dailyOffer || ''} Welcome is ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% on the first deposit, then ${Number(bonus.regularPercentOnEveryDeposit || 0)}% on every deposit. Referral is ${Number(bonus.referralPercentOnce || 0)}% once, paid to the person who invited you when your deposit succeeds. Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)}; first one is open, then every ${Number(facts.freeplayDepositsRequired || 15)} completed deposits${facts.freeplayEligible ? '' : ` (you are at ${facts.depositsSinceLastFreeplay}/${facts.freeplayDepositsRequired})`}.`,
+      text: `${bonus.dailyLabel || "Today's bonus"} is ${Number(bonus.dailyPercent || 0)}%. ${bonus.dailyOffer || ''} Welcome is ${Number(bonus.welcomePercentOnFirstDeposit || 0)}% on the first deposit, then ${Number(bonus.regularPercentOnEveryDeposit || 0)}% on every deposit. Referral is ${Number(bonus.referralPercentOnce || 0)}% once, paid to the person who invited you when your deposit succeeds. Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)}; first one is open, then another after $${Number(facts.freeplayDepositAmountRequired || 15).toFixed(2)} in completed deposits${facts.freeplayEligible ? '' : ` (you are at $${Number(facts.depositAmountSinceLastFreeplay || 0).toFixed(2)} / $${Number(facts.freeplayDepositAmountRequired || 15).toFixed(2)})`}.`,
       action,
     };
   }
@@ -376,13 +378,13 @@ function siteReply(text, facts, hasAttachment, check) {
         action: '',
       };
     }
-    const req = Number(facts.freeplayDepositsRequired || 15);
-    const since = Number(facts.depositsSinceLastFreeplay || 0);
+    const req = Number(facts.freeplayDepositAmountRequired || 15);
+    const since = Number(facts.depositAmountSinceLastFreeplay || 0);
     const claims = Number(facts.freeplayClaimCount || 0);
     if (!facts.freeplayEligible) {
       const need = Math.max(0, req - since);
       return {
-        text: `Next freeplay needs ${need} more completed deposit${need === 1 ? '' : 's'} (${since}/${req} since your last one).`,
+        text: `Next freeplay needs $${need.toFixed(2)} more in completed deposits ($${since.toFixed(2)} / $${req.toFixed(2)} since your last one).`,
         action: '',
       };
     }
@@ -390,7 +392,7 @@ function siteReply(text, facts, hasAttachment, check) {
       text:
         claims === 0
           ? `Freeplay is $${Number(bonus.freeplayAmount || 0).toFixed(2)} once to start. Pick your game, get a Game ID, then send the Primary inbox screenshot — do not open the email.`
-          : `You unlocked freeplay again (${since}/${req} deposits). It is $${Number(bonus.freeplayAmount || 0).toFixed(2)} on the game you choose. Send the Primary inbox screenshot.`,
+          : `You unlocked freeplay again ($${since.toFixed(2)} / $${req.toFixed(2)} in deposits). It is $${Number(bonus.freeplayAmount || 0).toFixed(2)} on the game you choose. Send the Primary inbox screenshot.`,
       action,
     };
   }
@@ -563,11 +565,10 @@ export async function buildSupportReply({ user, message, settings, games, gatewa
     else if (facts.freeplayPending) {
       text = 'Your freeplay screenshot is already being reviewed — wait for our reply here before sending another.';
     } else {
-      const need = Math.max(
-        0,
-        Number(facts.freeplayDepositsRequired || 15) - Number(facts.depositsSinceLastFreeplay || 0)
-      );
-      text = `You already used freeplay on this account. The next one unlocks after ${need} more completed deposit${need === 1 ? '' : 's'}.`;
+      const req = Number(facts.freeplayDepositAmountRequired || 15);
+      const since = Number(facts.depositAmountSinceLastFreeplay || 0);
+      const need = Math.max(0, req - since);
+      text = `You already used freeplay on this account. The next one unlocks after $${need.toFixed(2)} more in deposits ($${since.toFixed(2)} / $${req.toFixed(2)}).`;
     }
   }
   return {
